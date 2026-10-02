@@ -2,9 +2,9 @@ import { useState } from 'react'
 
 import { useI18n } from '@/i18n'
 import { capitalize, normalize } from '@/lib/text'
+import { ConversationPreview } from '@/plugins/hermes-bots/conversation-preview'
 
 import introCopyJsonl from './intro-copy.jsonl?raw'
-import { Wordmark } from './wordmark'
 
 type IntroCopy = {
   headline: string
@@ -146,8 +146,6 @@ function pickCopy(copies: IntroCopy[], seed = 0): IntroCopy {
   return copies[Math.abs(seed) % copies.length] || FALLBACK_COPY[0]
 }
 
-const WORDMARK = 'HERMES AGENT'
-
 function resolveCopy(personality?: string, seed?: number): IntroCopy {
   const personalityKey = normalizeKey(personality)
 
@@ -171,15 +169,8 @@ export function Intro({ personality, seed }: IntroProps) {
   const body = bodies?.[Math.abs(rotationSeed) % bodies.length] ?? copy.body
 
   return (
-    <div
-      className="pointer-events-none flex w-full min-w-0 flex-col items-center justify-center px-0.5 py-6 text-center text-muted-foreground sm:px-6 lg:px-8"
-      data-slot="aui_intro"
-    >
-      <div className="w-full min-w-0">
-        <Wordmark className="mb-1" text={WORDMARK} />
-
-        <p className="m-0 text-center leading-normal tracking-tight">{body}</p>
-      </div>
+    <div data-slot="aui_intro">
+      <ConversationPreview firstMessage={body} name="Hermes" />
     </div>
   )
 }

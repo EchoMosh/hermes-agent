@@ -1,27 +1,19 @@
 /**
  * What a bot's chat shows before it has said anything.
  *
- * Core's splash is Hermes' own wordmark and belongs to a fresh draft; a bot
- * chat is neither. It gets the same lettering with the bot's name in it, over
- * the same face the roster row and tab carry, so an empty conversation still
- * says whose it is.
+ * Show a labelled sample conversation until the bot has real history. The
+ * sample is presentation only; the transcript and composer stay untouched.
  */
 
-import { host, useValue, Wordmark } from '@hermes/plugin-sdk'
+import { host, useValue } from '@hermes/plugin-sdk'
 
 import { avatarColor, botAppearance, BotFace } from './avatar'
 import { isBackfilledFacePng } from './avatar-image'
+import { ConversationPreview } from './conversation-preview'
 import { $botMeta, $lastRoster } from './data'
-import { useBots } from './i18n'
 import { displayName } from './labels'
 import { botRosterMeta } from './routing'
 import type { RosterRow } from './types'
-
-const FACE_SIZE = 96
-const FACE_GAP = 16
-/** What the face costs the stack in height — the offset that puts the name on
- *  the center line is derived from it, so the two can never drift apart. */
-const FACE_BLOCK = FACE_SIZE + FACE_GAP
 
 /** The bot whose canonical chat this session is, if it is one. Matches the
  *  durable registry id or the compression-lineage tip, the same pair the
@@ -55,7 +47,6 @@ function botForChat(roster: readonly RosterRow[], sessionId: string): null | Ros
 }
 
 export function BotChatEmpty({ sessionId }: { sessionId: string }) {
-  const b = useBots()
   // Subscribed, not read once: roster, metadata and focus all land after the
   // transcript mounts. This is also how the state appears at all — the slot
   // mounts for every empty session and only resolves to a bot once the roster
@@ -80,32 +71,20 @@ export function BotChatEmpty({ sessionId }: { sessionId: string }) {
   const photo = Boolean(image && !isBackfilledFacePng(image))
 
   return (
-    <div
-      className="pointer-events-none flex w-full min-w-0 flex-col items-center justify-center px-0.5 py-6 text-center text-muted-foreground sm:px-6 lg:px-8"
-      data-slot="bot_chat_empty"
-      // The name reads as the title of the chat, so it — not the stack as a
-      // whole — is what should sit on the optical center line. Lifting the
-      // stack by half the face's block does exactly that: the face hangs above
-      // the line and the text lands on it, the same balance the splash strikes
-      // with nothing above its lettering.
-      style={{ transform: `translateY(-${FACE_BLOCK / 2}px)` }}
-    >
-      <div className="w-full min-w-0">
-        <div className="flex justify-center" style={{ marginBottom: FACE_GAP }}>
+    <div data-slot="bot_chat_empty">
+      <ConversationPreview
+        avatar={
           <BotFace
             color={avatarColor(color, bot.name)}
             image={photo ? image : null}
             mood="idle"
             name={bot.name}
             shape={shape}
-            size={FACE_SIZE}
+            size={48}
           />
-        </div>
-
-        <Wordmark className="mb-1" text={name} width="calc(80% - 1rem)" />
-
-        <p className="m-0 text-center leading-normal tracking-tight">{b.bot.chatEmpty}</p>
-      </div>
+        }
+        name={name}
+      />
     </div>
   )
 }

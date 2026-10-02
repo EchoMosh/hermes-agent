@@ -54,7 +54,7 @@ it('translates every shipped stock body at the same personality and rotation pos
       const seed = indices.get(entry.personality) ?? 0
       indices.set(entry.personality, seed + 1)
       rerender(<Fixture personality={entry.personality} seed={seed} />)
-      const body = container.querySelector('[data-slot="aui_intro"] > div > p:last-child')!.textContent
+      const body = container.querySelector('[data-slot="aui_intro"] .merna-conversation-preview-row p')!.textContent
       expect(body).toBeTruthy()
       expect(body).not.toBe(entry.body)
 
@@ -66,25 +66,29 @@ it('translates every shipped stock body at the same personality and rotation pos
 
   await act(() => i18n.setLocale('en'))
   rerender(<Fixture personality={entries[0].personality} seed={0} />)
-  expect(container.querySelector('[data-slot="aui_intro"] > div > p:last-child')!.textContent).toBe(entries[0].body)
+  expect(container.querySelector('[data-slot="aui_intro"] .merna-conversation-preview-row p')!.textContent).toBe(
+    entries[0].body
+  )
 })
 it('localizes the custom-personality fallback without translating its user-supplied name', async () => {
   vi.spyOn(Math, 'random').mockReturnValue(0)
   const { container } = render(<Fixture personality="My Custom Voice" seed={4} />)
-  const english = container.querySelector('[data-slot="aui_intro"] > div > p:last-child')!.textContent
+  const english = container.querySelector('[data-slot="aui_intro"] .merna-conversation-preview-row p')!.textContent
   await act(() => i18n.setLocale('zh'))
-  expect(container.querySelector('[data-slot="aui_intro"] > div > p:last-child')!.textContent).not.toBe(english)
-  expect(container.querySelector('[data-slot="aui_intro"] > div > p:last-child')!.textContent).toContain(
+  expect(container.querySelector('[data-slot="aui_intro"] .merna-conversation-preview-row p')!.textContent).not.toBe(
+    english
+  )
+  expect(container.querySelector('[data-slot="aui_intro"] .merna-conversation-preview-row p')!.textContent).toContain(
     'My Custom Voice'
   )
   await act(() => i18n.setLocale('ja'))
-  expect(container.querySelector('[data-slot="aui_intro"] > div > p:last-child')!.textContent).toContain(
+  expect(container.querySelector('[data-slot="aui_intro"] .merna-conversation-preview-row p')!.textContent).toContain(
     'My Custom Voice'
   )
 
   for (const locale of ['fr', 'de', 'es'] as const) {
     await act(() => i18n.setLocale(locale))
-    const body = container.querySelector('[data-slot="aui_intro"] > div > p:last-child')!.textContent
+    const body = container.querySelector('[data-slot="aui_intro"] .merna-conversation-preview-row p')!.textContent
     expect(body).not.toBe(english)
     expect(body).toContain('My Custom Voice')
   }

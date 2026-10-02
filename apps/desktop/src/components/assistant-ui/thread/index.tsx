@@ -1,5 +1,6 @@
 import { createContext, memo, useCallback, useContext, useMemo, useRef, useState } from 'react'
 
+import { ConversationIdentityProvider, useConversationIdentity } from '@/app/chat/conversation-identity'
 import { ChatEmptySlot } from '@/components/assistant-ui/chat-empty-slot'
 import { AssistantMessage } from '@/components/assistant-ui/thread/assistant-message'
 import { ThreadMessageList } from '@/components/assistant-ui/thread/list'
@@ -45,6 +46,9 @@ interface ThreadProps {
   onDismissError?: (messageId: string) => void
   onRestoreToMessage?: (messageId: string, target?: RestoreMessageTarget) => Promise<void> | void
   sessionId?: string | null
+  storedId?: string | null
+  conversationName?: string
+  conversationProfile?: string
   sessionKey?: string | null
   scrollProfile?: string
 }
@@ -67,10 +71,14 @@ export const Thread = memo(function Thread({
   onDismissError,
   onRestoreToMessage,
   sessionId = null,
+  storedId = null,
+  conversationName = 'Hermes',
+  conversationProfile,
   scrollProfile,
   sessionKey
 }: ThreadProps) {
   const { t } = useI18n()
+  const conversationIdentity = useConversationIdentity(storedId || undefined, conversationName, conversationProfile)
   const copy = t.assistant.thread
   const { isHistorical } = useTranscriptWindow()
 
@@ -166,7 +174,7 @@ export const Thread = memo(function Thread({
   const emptyBody = intro ? <Intro {...intro} /> : sessionId ? <ChatEmptySlot sessionId={sessionId} /> : null
 
   const emptyPlaceholder = emptyBody ? (
-    <div className="flex min-h-0 w-full flex-col items-center justify-center pt-[var(--composer-measured-height)]">
+    <div className="merna-thread-empty-frame flex min-h-0 w-full flex-col items-center justify-center pt-[var(--composer-measured-height)]">
       {emptyBody}
     </div>
   ) : undefined
@@ -179,30 +187,32 @@ export const Thread = memo(function Thread({
   const loadingIndicator = useMemo(() => <BackgroundResumeNotice />, [])
 
   return (
-    <ThreadEditContext.Provider value={editContext}>
-      <div className="relative grid h-full min-h-0 max-w-full grid-rows-[minmax(0,1fr)] overflow-hidden bg-transparent contain-[layout_paint]">
-        <ThreadMessageList
-          clampToComposer={clampToComposer}
-          components={messageComponents}
-          emptyPlaceholder={emptyPlaceholder}
-          loadingIndicator={loadingIndicator}
-          scrollProfile={scrollProfile}
-          sessionId={sessionId}
-          sessionKey={sessionKey}
-          sessionLoading={loading === 'session'}
-        />
-        {loading === 'session' && <CenteredThreadSpinner />}
-        <ThreadTimeline />
-        <ConfirmDialog
-          confirmLabel={copy.restoreConfirm}
-          description={copy.restoreBody}
-          destructive
-          onClose={closeRestoreConfirm}
-          onConfirm={confirmRestore}
-          open={Boolean(restoreConfirmTarget)}
-          title={copy.restoreTitle}
-        />
-      </div>
-    </ThreadEditContext.Provider>
+    <ConversationIdentityProvider identity={conversationIdentity}>
+      <ThreadEditContext.Provider value={editContext}>
+        <div className="relative grid h-full min-h-0 max-w-full grid-rows-[minmax(0,1fr)] overflow-hidden bg-transparent contain-[layout_paint]">
+          <ThreadMessageList
+            clampToComposer={clampToComposer}
+            components={messageComponents}
+            emptyPlaceholder={emptyPlaceholder}
+            loadingIndicator={loadingIndicator}
+            scrollProfile={scrollProfile}
+            sessionId={sessionId}
+            sessionKey={sessionKey}
+            sessionLoading={loading === 'session'}
+          />
+          {loading === 'session' && <CenteredThreadSpinner />}
+          <ThreadTimeline />
+          <ConfirmDialog
+            confirmLabel={copy.restoreConfirm}
+            description={copy.restoreBody}
+            destructive
+            onClose={closeRestoreConfirm}
+            onConfirm={confirmRestore}
+            open={Boolean(restoreConfirmTarget)}
+            title={copy.restoreTitle}
+          />
+        </div>
+      </ThreadEditContext.Provider>
+    </ConversationIdentityProvider>
   )
 })

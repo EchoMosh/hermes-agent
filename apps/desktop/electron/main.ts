@@ -9356,7 +9356,7 @@ async function sanitizeDesktopConnectionConfig(config = readDesktopConnectionCon
   const savedSsh = savedMode === 'local' ? (key ? savedProfileSsh(config, key) : normalizeSshConfig(block)) : null
 
   const remoteToken = decryptDesktopSecret(block.token)
-  const authMode = normAuthMode(block.authMode)
+  const authMode = envOverride && process.env.HERMES_DESKTOP_REMOTE_AUTH_MODE === 'oauth' ? 'oauth' : normAuthMode(block.authMode)
   const remoteUrl = envOverride ? String(process.env.HERMES_DESKTOP_REMOTE_URL || '') : String(block.url || '')
   const mode = envOverride ? 'remote' : savedMode === 'ssh' ? 'ssh' : modeIsRemoteLike(savedMode) ? savedMode : 'local'
 
@@ -10000,6 +10000,7 @@ function activeSshTerminalTarget(webContentsId?: number) {
   const route = resolveDesktopRemoteRoute({
     config,
     env: {
+      authMode: process.env.HERMES_DESKTOP_REMOTE_AUTH_MODE,
       token: process.env.HERMES_DESKTOP_REMOTE_TOKEN,
       url: process.env.HERMES_DESKTOP_REMOTE_URL
     },
@@ -10492,6 +10493,7 @@ async function resolveRemoteBackend(
     const currentRoute = resolveDesktopRemoteRoute({
       config: readDesktopConnectionConfig(),
       env: {
+        authMode: process.env.HERMES_DESKTOP_REMOTE_AUTH_MODE,
         token: process.env.HERMES_DESKTOP_REMOTE_TOKEN,
         url: process.env.HERMES_DESKTOP_REMOTE_URL
       },
@@ -10529,6 +10531,7 @@ async function resolveRemoteBackend(
     : resolveDesktopRemoteRoute({
         config,
         env: {
+          authMode: process.env.HERMES_DESKTOP_REMOTE_AUTH_MODE,
           token: process.env.HERMES_DESKTOP_REMOTE_TOKEN,
           url: process.env.HERMES_DESKTOP_REMOTE_URL
         },
@@ -11575,6 +11578,7 @@ async function captureManagedSshScopes(source) {
     resolveDesktopRemoteRoute({
       config,
       env: {
+        authMode: process.env.HERMES_DESKTOP_REMOTE_AUTH_MODE,
         token: process.env.HERMES_DESKTOP_REMOTE_TOKEN,
         url: process.env.HERMES_DESKTOP_REMOTE_URL
       },
@@ -19508,6 +19512,7 @@ function quitStopsBackendWork(): boolean {
       resolveDesktopRemoteRoute({
         config: readDesktopConnectionConfig(),
         env: {
+          authMode: process.env.HERMES_DESKTOP_REMOTE_AUTH_MODE,
           token: process.env.HERMES_DESKTOP_REMOTE_TOKEN,
           url: process.env.HERMES_DESKTOP_REMOTE_URL
         },

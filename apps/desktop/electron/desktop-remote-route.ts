@@ -42,7 +42,7 @@ export type DesktopRemoteRoute =
 
 export interface DesktopRemoteRouteInput {
   config: Record<string, any>
-  env?: { token?: null | string; url?: null | string }
+  env?: { authMode?: null | string; token?: null | string; url?: null | string }
   profile?: null | string
   registry: ConnectionRegistry
 }
@@ -122,6 +122,18 @@ export function resolveDesktopRemoteRoute({
 
   if (envUrl) {
     const envToken = String(env.token || '').trim()
+    const envAuthMode = String(env.authMode || '').trim().toLowerCase()
+
+    // A branded desktop can ship the gateway URL while the person signs in
+    // through the gateway's own OIDC flow. There is no shared bearer in the
+    // app bundle; the authenticated session is held in Electron's OAuth jar.
+    if (envAuthMode === 'oauth') {
+      if (envToken) {
+        throw new Error('An OAuth remote must not also set HERMES_DESKTOP_REMOTE_TOKEN.')
+      }
+
+      return { authMode: 'oauth', kind: 'remote', source: 'env', url: envUrl }
+    }
 
     if (!envToken) {
       throw new Error(

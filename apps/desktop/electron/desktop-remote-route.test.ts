@@ -63,6 +63,33 @@ test('environment URL without its token keeps the existing error', () => {
   )
 })
 
+test('environment OAuth route needs no bundled model or gateway key', () => {
+  const route = resolveDesktopRemoteRoute({
+    config: { mode: 'local' },
+    env: { authMode: 'oauth', url: 'https://office.merna.test' },
+    registry: registry('local', [])
+  })
+
+  assert.deepEqual(route, {
+    authMode: 'oauth',
+    kind: 'remote',
+    source: 'env',
+    url: 'https://office.merna.test'
+  })
+})
+
+test('environment OAuth route rejects an accidentally bundled shared token', () => {
+  assert.throws(
+    () =>
+      resolveDesktopRemoteRoute({
+        config: { mode: 'local' },
+        env: { authMode: 'oauth', token: 'shared-secret', url: 'https://office.merna.test' },
+        registry: registry('local', [])
+      }),
+    /must not also set HERMES_DESKTOP_REMOTE_TOKEN/
+  )
+})
+
 test('global remote uses exact primary provenance when another row is identical', () => {
   const route = resolveDesktopRemoteRoute({
     config: { mode: 'remote', remote: { url: 'https://gateway.test/', authMode: 'token', token: tokenA } },

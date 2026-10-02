@@ -51,6 +51,41 @@
   color: #145d6a !important;
 }
 
+[data-active-pane]:has([data-merna-chat]) > [data-panel-header] [data-slot='pane-tab'] .pane-tab-content,
+[data-active-pane]:has([data-merna-chat]) > [data-panel-header] [data-slot='pane-tab'] .pane-tab-content * {
+  color: #145d6a !important;
+}
+
+/* Scheduled Jobs remains the same pane with the same controls; its surface
+   joins the light conversation palette when Bot Mode is on screen. */
+[data-active-pane='hermes-bots:routines'] {
+  --foreground: #15516b;
+  --background: #f8fdfa;
+  --ui-text-primary: #15516b;
+  --ui-text-secondary: #527a8b;
+  --ui-text-tertiary: #688894;
+  --ui-text-quaternary: #8da4aa;
+  --ui-sidebar-surface-background: #f8fdfa;
+  --ui-editor-surface-background: #f8fdfa;
+  --ui-stroke-secondary: #d4e7e1;
+  --ui-stroke-tertiary: #e2eee9;
+  --pane-tab-active-bg: #f8fdfa;
+  --pane-tab-strip-bg: #f8fdfa;
+  --pane-tab-active-accent: #288f95;
+  background: #f8fdfa;
+  color: #15516b;
+}
+
+[data-active-pane='hermes-bots:routines'] > [data-panel-header],
+[data-active-pane='hermes-bots:routines'] > [data-panel-header] [data-zone-tabstrip] {
+  background: #f8fdfa;
+}
+
+[data-active-pane='hermes-bots:routines'] > [data-panel-header] [data-slot='pane-tab'] .pane-tab-content,
+[data-active-pane='hermes-bots:routines'] > [data-panel-header] [data-slot='pane-tab'] .pane-tab-content * {
+  color: #145d6a !important;
+}
+
 .merna-chat-header {
   display: flex;
   min-height: 4.75rem;

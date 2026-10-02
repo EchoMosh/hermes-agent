@@ -1,6 +1,7 @@
 import { host, useI18n, useValue } from '@hermes/plugin-sdk'
 import { useEffect, useRef, useState } from 'react'
 
+import './roster-vibe.css'
 import { BotRow } from './bot-row'
 import {
   $botChatFocused,
@@ -469,7 +470,7 @@ export function BotsPane() {
     })
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="merna-bots-rail flex h-full flex-col">
       {renderRosterToolbar({
         b,
         activityToasts,

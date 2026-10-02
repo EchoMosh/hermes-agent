@@ -243,7 +243,7 @@ export function BotRow({ bot, onDelete, onEdit, onGroup, onNewSection, showHandl
       aria-busy={isOpening || undefined}
       aria-label={rowTooltip}
       className={cn(
-        'merna-bots-row flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2.5 text-left transition-colors',
+        'merna-bots-row flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-xl px-2.5 py-2.5 text-left transition-colors',
         'hover:bg-(--chrome-action-hover)',
         isActive && 'bg-(--ui-row-active-background)',
         // The row being dragged fades in place; the browser's drag image is
@@ -268,7 +268,7 @@ export function BotRow({ bot, onDelete, onEdit, onGroup, onNewSection, showHandl
           mood={botMood}
           name={bot.name}
           shape={shape}
-          size={34}
+          size={44}
         />
       </div>
       <div className="min-w-0 flex-1">
@@ -564,12 +564,12 @@ export function GroupRow({ active, group, members, needsYou, onOpen, onDisband, 
         $draggingBot.set(dragKey)
       }}
     >
-      <div className="relative flex w-[34px] shrink-0 items-center justify-center">
+      <div className="relative flex w-[44px] shrink-0 items-center justify-center">
         {room.image ? (
           <img
             alt=""
             className={cn(
-              'size-8 rounded-md object-cover ring-1 ring-(--ui-stroke-tertiary)',
+              'size-11 rounded-md object-cover ring-1 ring-(--ui-stroke-tertiary)',
               availableMembers === 0 && 'grayscale opacity-60'
             )}
             src={room.image}
@@ -577,7 +577,7 @@ export function GroupRow({ active, group, members, needsYou, onOpen, onDisband, 
         ) : (
           <span
             className={cn(
-              'flex size-8 items-center justify-center rounded-md bg-(--chrome-action-hover) text-(--ui-text-tertiary)',
+              'flex size-11 items-center justify-center rounded-md bg-(--chrome-action-hover) text-(--ui-text-tertiary)',
               availableMembers === 0 && 'opacity-60'
             )}
           >

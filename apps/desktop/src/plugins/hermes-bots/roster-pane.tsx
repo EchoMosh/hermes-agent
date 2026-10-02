@@ -1,7 +1,8 @@
+import './roster-vibe.css'
+
 import { host, useI18n, useValue } from '@hermes/plugin-sdk'
 import { useEffect, useRef, useState } from 'react'
 
-import './roster-vibe.css'
 import { BotRow } from './bot-row'
 import {
   $botChatFocused,
@@ -49,6 +50,7 @@ import { $lastSources, usePublishRosterSnapshot } from './roster-pane-lifecycle'
 import { rosterSectionRenderers } from './roster-pane-sections'
 import { renderRosterToolbar } from './roster-pane-toolbar'
 import { botNeedsHandleLabel, rosterGatewayOptions } from './roster-sections'
+import { RosterVibeFooter, RosterVibeNav } from './roster-vibe-nav'
 import { botWorkspaceOwnerKey, setBotsWorkspaceOwner } from './routing'
 import { activeBots, useTurnBusy } from './row-helpers'
 import type { BotMeta, GatewaySource, GroupMember, RosterActivityFilter, RosterKindFilter, RosterRow } from './types'
@@ -240,6 +242,7 @@ export function BotsPane() {
   const workingOwner = focusedRosterOwner(useValue($focusedBotOwner))
   const activeConnectionId = host.state.connectionId?.get?.() || 'local'
   const [createOpen, setCreateOpen] = useState(false)
+  const [teamExpanded, setTeamExpanded] = useState(true)
   const [groupCreateOpen, setGroupCreateOpen] = useState(false)
   const [editing, setEditing] = useState<null | RosterRow>(null)
   // `path` is the profile directory the gateway reports on a profiles.list row;
@@ -471,58 +474,66 @@ export function BotsPane() {
 
   return (
     <div className="merna-bots-rail flex h-full flex-col">
-      {renderRosterToolbar({
-        b,
-        activityToasts,
-        activeSourceRoster,
-        roster,
-        setCreateOpen,
-        setGroupCreateOpen,
-        setSectionDialog,
-        showRosterTools,
-        showRosterSearch,
-        showRosterFilters,
-        query,
-        setQuery,
-        activeFilterCount,
-        gatewayOptions,
-        rowKindFilter,
-        setRowKindFilter,
-        activityFilter,
-        setActivityFilter,
-        gatewayFilter,
-        setGatewayFilter
-      })}
-      {renderRosterContent({
-        b,
-        staleNotice,
-        isLoading,
-        initialRosterLoading,
-        roster,
-        error,
-        gatewayUp,
-        refetch,
-        allBotsHidden,
-        hiddenExpanded,
-        rosterRows,
-        matchingHiddenBots,
-        query,
-        selectedGateway,
-        showGatewaySections,
-        sortedGroupRows,
-        gatewaySections,
-        showHiddenSection,
-        hiddenSectionRef,
-        hasRosterConstraint,
-        hiddenBots,
-        showHiddenRows,
-        hiddenGatewaySections,
-        renderBotRow,
-        renderGroupChatSection,
-        renderGatewaySection,
-        renderUserSections,
-        renderHiddenGatewaySection
-      })}
+      <div className="merna-bots-scroll min-h-0 flex-1 overflow-y-auto">
+        <RosterVibeNav />
+        {renderRosterToolbar({
+          b,
+          teamExpanded,
+          onToggleTeams: () => setTeamExpanded(value => !value),
+          activityToasts,
+          activeSourceRoster,
+          roster,
+          setCreateOpen,
+          setGroupCreateOpen,
+          setSectionDialog,
+          showRosterTools,
+          showRosterSearch,
+          showRosterFilters,
+          query,
+          setQuery,
+          activeFilterCount,
+          gatewayOptions,
+          rowKindFilter,
+          setRowKindFilter,
+          activityFilter,
+          setActivityFilter,
+          gatewayFilter,
+          setGatewayFilter
+        })}
+        {teamExpanded
+          ? renderRosterContent({
+              b,
+              staleNotice,
+              isLoading,
+              initialRosterLoading,
+              roster,
+              error,
+              gatewayUp,
+              refetch,
+              allBotsHidden,
+              hiddenExpanded,
+              rosterRows,
+              matchingHiddenBots,
+              query,
+              selectedGateway,
+              showGatewaySections,
+              sortedGroupRows,
+              gatewaySections,
+              showHiddenSection,
+              hiddenSectionRef,
+              hasRosterConstraint,
+              hiddenBots,
+              showHiddenRows,
+              hiddenGatewaySections,
+              renderBotRow,
+              renderGroupChatSection,
+              renderGatewaySection,
+              renderUserSections,
+              renderHiddenGatewaySection
+            })
+          : null}
+      </div>
+      <RosterVibeFooter onHire={() => setCreateOpen(true)} />
       {renderRosterDialogs({
         b,
         t,

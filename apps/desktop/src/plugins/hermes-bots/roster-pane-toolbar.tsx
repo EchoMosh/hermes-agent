@@ -20,6 +20,8 @@ import type { RosterActivityFilter, RosterKindFilter, RosterRow } from './types'
 
 interface renderRosterToolbarProps {
   b: ReturnType<typeof useBots>
+  teamExpanded: boolean
+  onToggleTeams: () => void
   activityToasts: boolean
   activeSourceRoster: RosterRow[]
   /** Full multi-source roster — the New Group Chat gate counts the same
@@ -47,6 +49,8 @@ interface renderRosterToolbarProps {
 
 export function renderRosterToolbar({
   b,
+  teamExpanded,
+  onToggleTeams,
   activityToasts,
   activeSourceRoster,
   roster,
@@ -69,11 +73,16 @@ export function renderRosterToolbar({
 }: renderRosterToolbarProps) {
   return (
     <>
-      <div className="merna-bots-toolbar flex items-center justify-between gap-2 px-3 pt-4 pb-3">
-        <span className="merna-bots-heading flex items-center gap-2 font-semibold">
-          <Codicon name="organization" />
-          <span>Team</span>
-        </span>
+      <div className="merna-bots-toolbar flex items-center justify-between gap-2 px-3 pt-3 pb-2">
+        <button
+          aria-expanded={teamExpanded}
+          className="merna-bots-heading flex items-center gap-2"
+          onClick={onToggleTeams}
+          type="button"
+        >
+          <span>Teams</span>
+          <Codicon name={teamExpanded ? 'chevron-up' : 'chevron-down'} />
+        </button>
         <div className="flex items-center gap-0.5">
           <Tip
             label={activityToasts ? 'Activity toasts on — click to silence' : 'Activity toasts off — click to enable'}

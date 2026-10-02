@@ -10,24 +10,105 @@
   --ui-accent: #148d87;
 }
 
+.merna-bots-scroll [data-slot='bots-roster'] {
+  overflow: visible;
+  flex: none;
+}
+
+.merna-workspace-header {
+  padding: 1.25rem 1rem 1.1rem;
+}
+
+.merna-workspace-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #0b6670;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  line-height: 1.2;
+}
+
+.merna-workspace-name .codicon {
+  font-size: 1rem;
+}
+
+.merna-workspace-nav {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.4rem 0.65rem 0.85rem;
+}
+
+.merna-workspace-nav-item,
+.merna-channel-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 1rem;
+  border-radius: 0.7rem;
+  padding: 0.55rem 0.75rem;
+  color: #176a73;
+  font-size: 1rem;
+  text-align: left;
+}
+
+.merna-workspace-nav-item:hover,
+.merna-channel-row:hover,
+.merna-settings-button:hover {
+  background: #dcefe8;
+}
+
+.merna-workspace-nav-item .codicon {
+  width: 1.55rem;
+  color: #0b7480;
+  font-size: 1.3rem;
+  text-align: center;
+}
+
+.merna-channels {
+  padding: 0.15rem 0.65rem 0.65rem;
+}
+
+.merna-section-caption {
+  padding: 0.1rem 0.75rem 0.3rem;
+  color: #688f94;
+  font-size: 0.84rem;
+}
+
+.merna-channel-row {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+
+.merna-channel-hash {
+  width: 1.55rem;
+  color: #5e8392;
+  font-size: 1.8rem;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+}
+
 .merna-bots-toolbar {
-  border-bottom: 1px solid #cfe5dc;
-  margin-bottom: 0.35rem;
+  margin: 0 0.65rem 0.2rem;
 }
 
 .merna-bots-heading {
-  color: #106b70;
-  font-size: 1.05rem;
-  letter-spacing: -0.025em;
+  color: #668e94;
+  font-size: 0.84rem;
+  font-weight: 500;
 }
 
 .merna-bots-heading .codicon {
-  font-size: 1.15rem;
+  color: #0d7881;
+  font-size: 0.9rem;
 }
 
 .merna-bots-rail .merna-bots-row {
   border: 1px solid transparent;
   margin: 0.1rem 0;
+  min-height: 4rem;
 }
 
 .merna-bots-rail .merna-bots-row:hover {
@@ -40,5 +121,59 @@
 }
 
 .merna-bots-name {
-  font-size: 0.875rem;
+  font-size: 0.98rem;
+}
+
+.merna-sidebar-bottom {
+  display: grid;
+  gap: 0.45rem;
+  border-top: 1px solid #d9ebe3;
+  padding: 0.75rem 0.75rem 0.85rem;
+}
+
+.merna-hire-button,
+.merna-settings-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: 0.8rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.merna-hire-button {
+  min-height: 2.85rem;
+  background: #e9dfff;
+  color: #7648cf;
+  padding: 0.35rem 0.7rem;
+}
+
+.merna-hire-button:hover {
+  background: #dfd0ff;
+}
+
+.merna-hire-plus {
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  border-radius: 50%;
+  background: #8c5bea;
+  color: #fff;
+  font-size: 1rem;
+}
+
+.merna-hire-arrow {
+  margin-left: auto;
+}
+
+.merna-settings-button {
+  color: #116c75;
+  padding: 0.55rem 0.7rem;
+}
+
+.merna-settings-button .codicon {
+  font-size: 1.25rem;
 }

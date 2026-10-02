@@ -3,6 +3,73 @@ import { useState } from 'react'
 
 const previewOnly = (name: string) => host.notify({ kind: 'info', message: `${name} is a visual preview for now.` })
 
+function RailIcon({ name }: { name: 'home' | 'dm' | 'activity' | 'more' | 'settings' }) {
+  const shared = { className: 'merna-rail-icon', 'aria-hidden': true as const, viewBox: '0 0 32 32' }
+
+  if (name === 'home') {
+    return (
+      <svg {...shared}>
+        <path d="M3 14.5 16 3l13 11.5-3.3 3.7-2.2-1.9V28h-8v-8h-5v8h-8V16.3l-2.2 1.9z" fill="currentColor" />
+      </svg>
+    )
+  }
+
+  if (name === 'dm') {
+    return (
+      <svg {...shared}>
+        <path
+          d="M5 6.5h22a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H13l-7.5 4v-4A3.5 3.5 0 0 1 2 22V9.5a3.5 3.5 0 0 1 3-3Z"
+          fill="none"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="2.7"
+        />
+        <circle cx="10" cy="16" fill="currentColor" r="1.6" />
+        <circle cx="16" cy="16" fill="currentColor" r="1.6" />
+        <circle cx="22" cy="16" fill="currentColor" r="1.6" />
+      </svg>
+    )
+  }
+
+  if (name === 'activity') {
+    return (
+      <svg {...shared}>
+        <path
+          d="M16 3a3 3 0 0 1 3 3v1c5.2 1.3 7 5.6 7 11v4l2.3 3H3.7L6 22v-4c0-5.4 1.8-9.7 7-11V6a3 3 0 0 1 3-3ZM12.5 27a3.5 3.5 0 0 0 7 0"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2.7"
+        />
+      </svg>
+    )
+  }
+
+  if (name === 'more') {
+    return (
+      <svg {...shared}>
+        <circle cx="6" cy="16" fill="currentColor" r="3.1" />
+        <circle cx="16" cy="16" fill="currentColor" r="3.1" />
+        <circle cx="26" cy="16" fill="currentColor" r="3.1" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg {...shared}>
+      <path
+        d="m13 2 1 3.1a11 11 0 0 1 4 0L19 2l3.5 1.5-.8 3.2a11 11 0 0 1 2.8 2.8l3.2-.8L29 12l-3.1 1a11 11 0 0 1 0 4l3.1 1-1.5 3.5-3.2-.8a11 11 0 0 1-2.8 2.8l.8 3.2L19 28l-1-3.1a11 11 0 0 1-4 0L13 28l-3.5-1.5.8-3.2a11 11 0 0 1-2.8-2.8l-3.2.8L3 18l3.1-1a11 11 0 0 1 0-4L3 12l1.5-3.5 3.2.8a11 11 0 0 1 2.8-2.8l-.8-3.2z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="2.2"
+      />
+      <circle cx="16" cy="15" fill="none" r="4.2" stroke="currentColor" strokeWidth="2.2" />
+    </svg>
+  )
+}
+
 export function RosterVibeNav() {
   const [moreOpen, setMoreOpen] = useState(false)
 
@@ -23,12 +90,12 @@ export function RosterVibeNav() {
         {(
           [
             ['home', 'Home'],
-            ['comment-discussion', 'DMs'],
-            ['bell', 'Activity']
+            ['dm', 'DMs'],
+            ['activity', 'Activity']
           ] as const
         ).map(([icon, label]) => (
           <button className="merna-workspace-nav-item" key={label} onClick={() => previewOnly(label)} type="button">
-            <Codicon name={icon} />
+            <RailIcon name={icon} />
             <span>{label}</span>
           </button>
         ))}
@@ -38,7 +105,7 @@ export function RosterVibeNav() {
           onClick={() => setMoreOpen(value => !value)}
           type="button"
         >
-          <Codicon name="ellipsis" />
+          <RailIcon name="more" />
           <span>More</span>
           <Codicon className="merna-more-chevron" name={moreOpen ? 'chevron-up' : 'chevron-down'} />
         </button>
@@ -67,6 +134,11 @@ export function RosterVibeNav() {
               #
             </span>
             <span>{channel}</span>
+            {channel === 'product' ? (
+              <span aria-label="Preview unread message" className="merna-channel-badge">
+                1
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -85,7 +157,7 @@ export function RosterVibeFooter({ onHire }: { onHire: () => void }) {
         <Codicon className="merna-hire-arrow" name="arrow-right" />
       </button>
       <button className="merna-settings-button" onClick={() => host.navigate('/settings')} type="button">
-        <Codicon name="gear" />
+        <RailIcon name="settings" />
         <span>Settings</span>
       </button>
     </div>

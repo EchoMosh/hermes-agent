@@ -268,7 +268,7 @@ export function BotRow({ bot, onDelete, onEdit, onGroup, onNewSection, showHandl
           mood={botMood}
           name={bot.name}
           shape={shape}
-          size={44}
+          size={48}
         />
       </div>
       <div className="min-w-0 flex-1">

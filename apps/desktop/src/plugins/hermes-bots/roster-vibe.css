@@ -14,6 +14,12 @@
 
 .merna-bots-rail {
   color: #145e65;
+  font-family:
+    'Avenir Next',
+    'Nunito Sans',
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   --ui-text-secondary: #346d72;
   --ui-text-tertiary: #638c8e;
   --ui-text-quaternary: #779c9b;
@@ -29,7 +35,7 @@
 }
 
 .merna-workspace-header {
-  padding: 1.25rem 1rem 1.1rem;
+  padding: 0.125rem 1.25rem 1.6rem;
 }
 
 .merna-workspace-name {
@@ -37,9 +43,9 @@
   align-items: center;
   gap: 0.55rem;
   color: #0b6670;
-  font-size: 1.55rem;
+  font-size: 1.8rem;
   font-weight: 700;
-  letter-spacing: -0.055em;
+  letter-spacing: -0.045em;
   line-height: 1.2;
 }
 
@@ -49,8 +55,8 @@
 
 .merna-workspace-nav {
   display: grid;
-  gap: 0.2rem;
-  padding: 0.4rem 0.65rem 0.85rem;
+  gap: 0.3rem;
+  padding: 0.35rem 0.65rem 1.35rem;
 }
 
 .merna-workspace-nav-item,
@@ -58,11 +64,11 @@
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 1rem;
+  gap: 1.2rem;
   border-radius: 0.7rem;
-  padding: 0.55rem 0.75rem;
+  padding: 0.48rem 0.75rem;
   color: #176a73;
-  font-size: 1rem;
+  font-size: 1.2rem;
   text-align: left;
 }
 
@@ -72,16 +78,23 @@
   background: #dcefe8;
 }
 
-.merna-workspace-nav-item .codicon {
-  width: 1.55rem;
-  color: #0b7480;
-  font-size: 1.3rem;
-  text-align: center;
+.merna-rail-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  color: #0a707a;
 }
 
 .merna-more-chevron {
   margin-left: auto;
   font-size: 0.85rem !important;
+  opacity: 0;
+}
+
+.merna-workspace-nav-item:hover .merna-more-chevron,
+.merna-workspace-nav-item:focus-visible .merna-more-chevron,
+.merna-workspace-nav-item[aria-expanded='true'] .merna-more-chevron {
+  opacity: 1;
 }
 
 .merna-more-panel {
@@ -104,37 +117,66 @@
 }
 
 .merna-channels {
-  padding: 0.15rem 0.65rem 0.65rem;
+  padding: 0.3rem 0.65rem 1.15rem;
 }
 
 .merna-section-caption {
-  padding: 0.1rem 0.75rem 0.3rem;
-  color: #688f94;
-  font-size: 0.84rem;
+  padding: 0.1rem 1.1rem 0.42rem;
+  color: #5b7f8e;
+  font-size: 1.2rem;
+  font-weight: 500;
+  line-height: 1.25;
 }
 
 .merna-channel-row {
-  padding-top: 0.35rem;
-  padding-bottom: 0.35rem;
+  padding-top: 0.42rem;
+  padding-bottom: 0.42rem;
 }
 
 .merna-channel-hash {
-  width: 1.55rem;
+  width: 1.75rem;
   color: #5e8392;
-  font-size: 1.8rem;
+  font-size: 1.95rem;
   font-weight: 600;
   line-height: 1;
   text-align: center;
 }
 
+.merna-channel-badge {
+  display: grid;
+  width: 1.7rem;
+  height: 1.7rem;
+  margin-left: auto;
+  place-items: center;
+  border-radius: 50%;
+  background: #fb666b;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .merna-bots-toolbar {
-  margin: 0 0.65rem 0.2rem;
+  position: relative;
+  margin: 0 1rem 0.2rem;
+}
+
+.merna-team-actions {
+  position: absolute;
+  right: 2.2rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.merna-bots-toolbar:hover .merna-team-actions,
+.merna-bots-toolbar:focus-within .merna-team-actions {
+  opacity: 1;
 }
 
 .merna-bots-heading {
-  color: #668e94;
-  font-size: 0.84rem;
+  color: #5b7f8e;
+  font-size: 1.2rem;
   font-weight: 500;
+  line-height: 1.25;
 }
 
 .merna-bots-heading .codicon {
@@ -145,7 +187,7 @@
 .merna-bots-rail .merna-bots-row {
   border: 1px solid transparent;
   margin: 0.1rem 0;
-  min-height: 4rem;
+  min-height: 4.2rem;
 }
 
 .merna-bots-rail .merna-bots-row:hover {
@@ -158,13 +200,13 @@
 }
 
 .merna-bots-name {
-  font-size: 0.98rem;
+  font-size: 1.14rem;
 }
 
 .merna-sidebar-bottom {
   display: grid;
   gap: 0.45rem;
-  border-top: 1px solid #d9ebe3;
+  border-top: 0;
   padding: 0.75rem 0.75rem 0.85rem;
 }
 
@@ -175,13 +217,13 @@
   align-items: center;
   gap: 0.65rem;
   border-radius: 0.8rem;
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   font-weight: 600;
   text-align: left;
 }
 
 .merna-hire-button {
-  min-height: 2.85rem;
+  min-height: 3.25rem;
   background: #e9dfff;
   color: #7648cf;
   padding: 0.35rem 0.7rem;
@@ -213,4 +255,9 @@
 
 .merna-settings-button .codicon {
   font-size: 1.25rem;
+}
+
+.merna-settings-button .merna-rail-icon {
+  width: 1.55rem;
+  height: 1.55rem;
 }

@@ -76,14 +76,14 @@ export function renderRosterToolbar({
       <div className="merna-bots-toolbar flex items-center justify-between gap-2 px-3 pt-3 pb-2">
         <button
           aria-expanded={teamExpanded}
-          className="merna-bots-heading flex items-center gap-2"
+          className="merna-bots-heading flex flex-1 items-center justify-between gap-2"
           onClick={onToggleTeams}
           type="button"
         >
           <span>Teams</span>
           <Codicon name={teamExpanded ? 'chevron-up' : 'chevron-down'} />
         </button>
-        <div className="flex items-center gap-0.5">
+        <div className="merna-team-actions flex items-center gap-0.5">
           <Tip
             label={activityToasts ? 'Activity toasts on — click to silence' : 'Activity toasts off — click to enable'}
           >

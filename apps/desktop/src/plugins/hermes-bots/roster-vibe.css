@@ -1,5 +1,18 @@
-.merna-bots-rail {
+.merna-bots-rail,
+[data-active-pane='hermes-bots:pane'] {
   background: #eef8f4;
+}
+
+[data-active-pane='hermes-bots:pane'] > [data-panel-header] {
+  height: 34px !important;
+  background: #eef8f4;
+}
+
+[data-active-pane='hermes-bots:pane'] > [data-panel-header] [data-zone-tabstrip] {
+  display: none;
+}
+
+.merna-bots-rail {
   color: #145e65;
   --ui-text-secondary: #346d72;
   --ui-text-tertiary: #638c8e;
@@ -64,6 +77,30 @@
   color: #0b7480;
   font-size: 1.3rem;
   text-align: center;
+}
+
+.merna-more-chevron {
+  margin-left: auto;
+  font-size: 0.85rem !important;
+}
+
+.merna-more-panel {
+  display: grid;
+  gap: 0.1rem;
+  margin: -0.1rem 0 0.2rem 2.8rem;
+}
+
+.merna-more-panel button {
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.65rem;
+  color: #4d7d82;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.merna-more-panel button:hover {
+  background: #dcefe8;
+  color: #0b6670;
 }
 
 .merna-channels {

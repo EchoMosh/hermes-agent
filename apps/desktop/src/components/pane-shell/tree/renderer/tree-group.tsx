@@ -477,6 +477,7 @@ export function TreeGroup({
   return (
     <div
       className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-(--ui-editor-surface-background)"
+      data-active-pane={activeId}
       data-tree-group={node.id}
       data-window-top={topEdge || undefined}
       // Advertises the visible tab strip so panes can drop their own

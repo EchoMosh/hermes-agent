@@ -1,8 +1,11 @@
 import { Codicon, host } from '@hermes/plugin-sdk'
+import { useState } from 'react'
 
 const previewOnly = (name: string) => host.notify({ kind: 'info', message: `${name} is a visual preview for now.` })
 
 export function RosterVibeNav() {
+  const [moreOpen, setMoreOpen] = useState(false)
+
   return (
     <>
       <div className="merna-workspace-header">
@@ -21,8 +24,7 @@ export function RosterVibeNav() {
           [
             ['home', 'Home'],
             ['comment-discussion', 'DMs'],
-            ['bell', 'Activity'],
-            ['ellipsis', 'More']
+            ['bell', 'Activity']
           ] as const
         ).map(([icon, label]) => (
           <button className="merna-workspace-nav-item" key={label} onClick={() => previewOnly(label)} type="button">
@@ -30,6 +32,31 @@ export function RosterVibeNav() {
             <span>{label}</span>
           </button>
         ))}
+        <button
+          aria-expanded={moreOpen}
+          className="merna-workspace-nav-item"
+          onClick={() => setMoreOpen(value => !value)}
+          type="button"
+        >
+          <Codicon name="ellipsis" />
+          <span>More</span>
+          <Codicon className="merna-more-chevron" name={moreOpen ? 'chevron-up' : 'chevron-down'} />
+        </button>
+        {moreOpen ? (
+          <div className="merna-more-panel">
+            {(
+              [
+                ['Sessions', 'sessions'],
+                ['Bots', 'hermes-bots:pane'],
+                ['Files', 'files']
+              ] as const
+            ).map(([label, pane]) => (
+              <button key={pane} onClick={() => host.revealPane(pane)} type="button">
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </nav>
 
       <div className="merna-channels">

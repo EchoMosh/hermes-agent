@@ -61,6 +61,12 @@
 [data-active-pane='hermes-bots:routines'] {
   --foreground: #15516b;
   --background: #f8fdfa;
+  --dt-foreground: #15516b;
+  --dt-muted-foreground: #527a8b;
+  --dt-background: #f8fdfa;
+  --dt-primary: #188f91;
+  --dt-primary-solid: #188f91;
+  --dt-primary-foreground: #fff;
   --ui-text-primary: #15516b;
   --ui-text-secondary: #527a8b;
   --ui-text-tertiary: #688894;

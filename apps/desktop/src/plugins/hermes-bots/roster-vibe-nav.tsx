@@ -9,7 +9,8 @@ function RailIcon({ name }: { name: 'home' | 'dm' | 'activity' | 'more' | 'setti
   if (name === 'home') {
     return (
       <svg {...shared}>
-        <path d="M3 14.5 16 3l13 11.5-3.3 3.7-2.2-1.9V28h-8v-8h-5v8h-8V16.3l-2.2 1.9z" fill="currentColor" />
+        <path d="M16 3 2 15l2.5 2.7L16 8l11.5 9.7L30 15 16 3Z" fill="currentColor" />
+        <path d="M7 15.5V28h7v-9h4v9h7V15.5L16 8Z" fill="currentColor" />
       </svg>
     )
   }

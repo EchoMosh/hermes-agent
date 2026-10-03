@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as groupChat from './group-chat'
+import type * as groupReactionStore from './group-message-reaction-store'
+import { groupMessageReactionCounts, groupMessageWithStableId } from './group-message-reactions'
 import type * as groupRounds from './group-rounds'
 import { createGroupGateway, deferTimers, drain, runTimersInline, scriptedStorage } from './group-test-utils'
 import type { GatewayOptions, ScriptedGateway } from './group-test-utils'
@@ -23,6 +25,7 @@ vi.mock('@hermes/plugin-sdk', async () => {
 interface Room {
   chat: typeof groupChat
   gateway: ScriptedGateway
+  reactions: typeof groupReactionStore
   rounds: typeof groupRounds
 }
 
@@ -40,15 +43,16 @@ async function loadRoom(options: GatewayOptions = {}): Promise<Room> {
 
   Object.assign(host, gateway.host)
 
-  const [chat, rounds, shared] = await Promise.all([
+  const [chat, reactions, rounds, shared] = await Promise.all([
     import('./group-chat'),
+    import('./group-message-reaction-store'),
     import('./group-rounds'),
     import('./shared')
   ])
 
   shared.setPluginCtx(scriptedStorage(gateway.storage))
 
-  return { chat, gateway, rounds }
+  return { chat, gateway, reactions, rounds }
 }
 
 const durable = (room: Room) => (room.gateway.storage.get('group-chats') || {}) as Record<string, GroupChat>
@@ -437,6 +441,117 @@ describe('threads', () => {
   })
 })
 
+describe('room reactions', () => {
+  it('derives the same stable id for a legacy human or agent message without using a session id', async () => {
+    const { chat } = await loadRoom()
+
+    const entry = {
+      at: 42,
+      from: { kind: 'member' as const, name: 'builder', gateway: 'install-a' },
+      text: 'Ready for review',
+      thread: 'legacy-8'
+    }
+
+    expect(groupMessageWithStableId(entry).id).toBe(groupMessageWithStableId({ ...entry }).id)
+    expect(groupMessageWithStableId(entry).id).toMatch(/^legacy-/)
+    expect(groupMessageWithStableId(entry).id).not.toContain('session')
+  })
+
+  it('persists reactions on human and agent messages across an A→B→A scope switch without starting a reply', async () => {
+    const room = await loadRoom()
+    const connection = { current: 'A' }
+
+    host.activeConnectionId = () => connection.current
+    host.state = {
+      connectionId: { get: () => connection.current, listen: () => () => undefined }
+    }
+
+    room.chat.$groupChats.set({
+      Alpha: {
+        log: [
+          { at: 1, from: { kind: 'user', name: 'You' }, id: 'alpha-human', text: 'Question', thread: 't-a' },
+          {
+            at: 2,
+            from: { kind: 'member', name: 'builder' },
+            id: 'alpha-agent',
+            text: 'Answer',
+            thread: 't-a'
+          }
+        ],
+        watermarks: { builder: 2 }
+      },
+      Beta: {
+        // Same message id as Alpha on purpose: room scope is part of the
+        // mutation address, so one room can never receive the other's tapback.
+        log: [{ at: 3, from: { kind: 'member', name: 'reviewer' }, id: 'alpha-human', text: 'Review', thread: 't-b' }],
+        watermarks: { reviewer: 1 }
+      }
+    })
+
+    room.chat.$groupChatWorkspace.set('Alpha')
+    room.reactions.toggleGroupMessageReaction('Alpha', 'alpha-human', '❤️', undefined, 10)
+    connection.current = 'B'
+    room.chat.$groupChatWorkspace.set('Beta')
+    room.reactions.toggleGroupMessageReaction('Beta', 'alpha-human', '👍', undefined, 20)
+    connection.current = 'A'
+    room.chat.$groupChatWorkspace.set('Alpha')
+    room.reactions.toggleGroupMessageReaction('Alpha', 'alpha-agent', '😂', undefined, 30)
+
+    const live = room.chat.$groupChats.get()
+
+    expect(groupMessageReactionCounts(live.Alpha.log[0].reactions)).toEqual([{ count: 1, emoji: '❤️', selected: true }])
+    expect(groupMessageReactionCounts(live.Alpha.log[1].reactions)).toEqual([{ count: 1, emoji: '😂', selected: true }])
+    expect(groupMessageReactionCounts(live.Beta.log[0].reactions)).toEqual([{ count: 1, emoji: '👍', selected: true }])
+    expect(live.Alpha.log).toHaveLength(2)
+    expect(live.Beta.log).toHaveLength(1)
+    expect(live.Alpha.watermarks).toEqual({ builder: 2 })
+    expect(live.Beta.watermarks).toEqual({ reviewer: 1 })
+    expect(room.gateway.rpcFor('prompt.submit')).toHaveLength(0)
+
+    const stored = durable(room)
+
+    expect(stored.Alpha.log[0].reactions?.[0].emoji).toBe('❤️')
+    expect(stored.Alpha.log[1].reactions?.[0].emoji).toBe('😂')
+    expect(stored.Beta.log[0].reactions?.[0].emoji).toBe('👍')
+  })
+
+  it('keeps a newer retraction tombstone when an older mirror returns', async () => {
+    const { chat } = await loadRoom()
+    const message = { at: 1, from: { kind: 'member' as const, name: 'builder' }, id: 'm1', text: 'Done' }
+    const oldReaction = { at: 10, emoji: '❤️', from: { kind: 'user' as const, name: 'You' } }
+    const retracted = { at: 20, emoji: null, from: { kind: 'user' as const, name: 'You' } }
+
+    const merged = chat.mergeGroupChatSyncSnapshots(
+      { rooms: { 'name:Shared': { log: [{ ...message, reactions: [oldReaction] }] } }, version: 3 },
+      { rooms: { 'name:Shared': { log: [{ ...message, reactions: [retracted] }] } }, version: 3 }
+    )
+
+    expect(groupMessageReactionCounts(merged.rooms['name:Shared'].log[0].reactions)).toEqual([])
+    expect(merged.rooms['name:Shared'].log[0].reactions?.[0]).toMatchObject({ at: 20, emoji: null })
+  })
+
+  it('replays a persisted member reaction idempotently across pollers', async () => {
+    const room = await loadRoom()
+    const member = { gateway: 'gw-1', kind: 'member' as const, name: 'helper', source: 'Studio' }
+
+    room.chat.$groupChats.set({
+      Shared: {
+        log: [{ at: 1, from: { kind: 'user', name: 'You' }, id: 'm1', text: 'Thanks', thread: 't1' }],
+        watermarks: { helper: 1 }
+      }
+    })
+
+    room.reactions.setGroupMessageReaction('Shared', 'm1', '❤️', member, 100)
+    room.reactions.setGroupMessageReaction('Shared', 'm1', '❤️', member, 100)
+
+    const live = room.chat.$groupChats.get().Shared
+
+    expect(live.log[0].reactions).toEqual([{ at: 100, emoji: '❤️', from: member }])
+    expect(live.log).toHaveLength(1)
+    expect(live.watermarks).toEqual({ helper: 1 })
+  })
+})
+
 describe('durable projection', () => {
   it('excludes tombstoned rooms', async () => {
     const { chat } = await loadRoom()
@@ -461,6 +576,22 @@ describe('durable projection', () => {
     expect(rooms.Team.roomId).toBe('room-abc123')
     // An explicit null, not undefined — the key has to survive JSON.
     expect(rooms.Legacy.roomId).toBeNull()
+  })
+
+  it('persists explicit room kind while treating legacy rooms as group DMs', async () => {
+    const { chat } = await loadRoom()
+    const log = [{ at: 1, from: { kind: 'user' as const, name: 'You' }, id: 'm1', text: 'Hello' }]
+
+    const rooms = chat.durableGroupChatRooms({
+      Channel: { kind: 'channel', log, watermarks: {} },
+      Direct: { kind: 'group-dm', log, watermarks: {} },
+      Legacy: { log, watermarks: {} }
+    })
+
+    expect(rooms.Channel.kind).toBe('channel')
+    expect(rooms.Direct.kind).toBe('group-dm')
+    expect(chat.groupRoomKind(rooms.Legacy)).toBe('group-dm')
+    expect(chat.groupChatSyncSnapshot(rooms).rooms['name:Channel'].kind).toBe('channel')
   })
 
   it('never persists a tombstone that a remote merge forwarded', async () => {

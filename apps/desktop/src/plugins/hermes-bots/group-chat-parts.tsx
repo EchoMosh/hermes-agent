@@ -8,7 +8,20 @@
  * controls without either surface importing the other.
  */
 
-import { Button, cn, Codicon, host, Input, RowButton, Textarea, useI18n, useValue } from '@hermes/plugin-sdk'
+import {
+  Button,
+  cn,
+  Codicon,
+  host,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  RowButton,
+  Textarea,
+  useI18n,
+  useValue
+} from '@hermes/plugin-sdk'
 import type { ClipboardEvent } from 'react'
 import { useRef, useState } from 'react'
 
@@ -16,11 +29,88 @@ import { $imagenAvailable, normalizeAvatarImage, pickImageFromDevice, probeImage
 import { $botMeta, botHandle, botMentionTag } from './data'
 import { appendGroupChatEntry } from './group-chat'
 import { groupMemberKey } from './group-membership'
+import { toggleGroupMessageReaction } from './group-message-reaction-store'
+import { groupMessageReactionCounts } from './group-message-reactions'
 import { answerGroupClarify } from './group-turns'
 import { useBots } from './i18n'
 import { displayName } from './labels'
 import { botRosterMeta } from './routing'
-import type { BotMeta, GroupMember, GroupPrompt } from './types'
+import type { BotMeta, GroupMember, GroupMessage, GroupPrompt } from './types'
+
+const GROUP_QUICK_REACTIONS = ['❤️', '👍', '👎', '😂', '‼️', '❓'] as const
+
+/** Accessible room-local reaction UI. Bot Mode's plugin fence cannot import
+ *  the core thread picker, so this uses the SDK's shared popover and button
+ *  primitives with the same quick set. Counts are derived from durable room
+ *  log state; selecting the current emoji retracts it. */
+export function GroupMessageReactions({ group, message }: { group: string; message: GroupMessage }) {
+  const [open, setOpen] = useState(false)
+  const counts = groupMessageReactionCounts(message.reactions)
+  const selected = counts.find(reaction => reaction.selected)?.emoji
+
+  if (!message.id) {
+    return null
+  }
+
+  const react = (emoji: string) => {
+    toggleGroupMessageReaction(group, message.id!, emoji)
+    setOpen(false)
+  }
+
+  return (
+    <div
+      className="mt-1 flex min-h-5 items-center gap-1"
+      data-empty={counts.length === 0 ? 'true' : undefined}
+      data-slot="group-chat-message-reactions"
+    >
+      {counts.map(reaction => (
+        <Button
+          aria-label={`${reaction.emoji} reaction, ${reaction.count}`}
+          aria-pressed={reaction.selected}
+          className="gap-0.5 text-[0.7rem] text-(--ui-text-tertiary)"
+          key={reaction.emoji}
+          onClick={() => react(reaction.emoji)}
+          size="inline"
+          variant="text"
+        >
+          <span aria-hidden="true">{reaction.emoji}</span>
+          <span>{reaction.count}</span>
+        </Button>
+      ))}
+      <Popover onOpenChange={setOpen} open={open}>
+        <PopoverTrigger asChild>
+          <Button
+            aria-label="Add reaction"
+            className={cn(
+              'text-(--ui-text-tertiary) hover:text-foreground',
+              counts.length === 0 &&
+                'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus:pointer-events-auto focus:opacity-100'
+            )}
+            size="icon"
+            variant="ghost"
+          >
+            <Codicon name="smiley" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="flex w-auto gap-0.5 p-1" side="top">
+          {GROUP_QUICK_REACTIONS.map(emoji => (
+            <Button
+              aria-label={`React with ${emoji}`}
+              aria-pressed={selected === emoji}
+              className={cn('text-base', selected === emoji && 'bg-(--chrome-action-hover)')}
+              key={emoji}
+              onClick={() => react(emoji)}
+              size="icon-sm"
+              variant="ghost"
+            >
+              {emoji}
+            </Button>
+          ))}
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
 
 /** The `image.generate` reply. Older gateways answer `image`, newer ones
  *  `image_data`; both are data URLs. */

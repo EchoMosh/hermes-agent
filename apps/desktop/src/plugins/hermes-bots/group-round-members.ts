@@ -131,8 +131,9 @@ function prepareGroupRoundMember(context: GroupRoundMemberContext, member: Group
   // into the member's session so the model sees the pixels, not just
   // the transcript's [attached image: …] marker.
   const deltaImages = visibleDelta.flatMap((e: GroupMessage) => (Array.isArray(e.images) ? e.images : []))
+  const reactionTargetId = visibleDelta.at(-1)?.id ?? null
 
-  return { room, memberKey, markKey, prompt, deltaImages, heldIds }
+  return { room, memberKey, markKey, prompt, deltaImages, heldIds, reactionTargetId }
 }
 
 /** Each invocation owns its descriptor, so an old completion cannot clear a newer turn. */
@@ -140,13 +141,14 @@ async function runVisibleMemberTurn(
   context: GroupRoundMemberContext,
   member: GroupMember,
   prompt: string,
-  images?: Attachment[]
+  images?: Attachment[],
+  reactionTargetId?: null | string
 ) {
   const turn = { ...member }
   updateGroupChat(context.group, (room: GroupChatRoom) => ({ ...room, turn }), { sync: false })
 
   try {
-    return await runGroupChatMemberTurn(context.group, member, prompt, context.thread, images)
+    return await runGroupChatMemberTurn(context.group, member, prompt, context.thread, images, reactionTargetId)
   } finally {
     if (context.binding.isLive() && $groupChats.get()[context.group]?.turn === turn) {
       updateGroupChat(context.group, (room: GroupChatRoom) => ({ ...room, turn: null }), { sync: false })
@@ -170,13 +172,14 @@ export async function runGroupRoundMember(
     return false
   }
 
-  const { room, memberKey, markKey, prompt, deltaImages, heldIds } = prepared
+  const { room, memberKey, markKey, prompt, deltaImages, heldIds, reactionTargetId } = prepared
   const anchorId = room.log.at(-1)?.id ?? null
   let reply: null | string = null
   let accepted = false
+  let failureReason: null | string = null
 
   try {
-    reply = await runVisibleMemberTurn(context, member, prompt, deltaImages)
+    reply = await runVisibleMemberTurn(context, member, prompt, deltaImages, reactionTargetId)
     accepted = true
 
     // Needs-attention hook (#93091 item 3): a turn that produced a real
@@ -204,7 +207,8 @@ export async function runGroupRoundMember(
     })
     noteBotAttention(groupMemberKey(member), reason || error?.message || error)
     context.failedMembers?.add(groupMemberKey(member))
-    reply = null // a failed turn is a pass, never a room error
+    failureReason = reason || 'The turn failed.'
+    reply = null
   }
 
   // #93127: the turn may have finished AFTER a newer user send bumped
@@ -278,6 +282,12 @@ export async function runGroupRoundMember(
 
   if (reply !== null && spoke) {
     appendGroupChatEntry(context.group, groupMemberAuthor(member), reply, thread)
+  } else if (failureReason) {
+    // The activity feed and roster badge are easy to miss. Persist a concise,
+    // redacted failure in the room transcript so the user can see why this
+    // member stayed silent. It remains a failed turn (`spoke === false`), so
+    // it cannot extend the round or masquerade as a model answer.
+    appendGroupChatEntry(context.group, groupMemberAuthor(member), `⚠️ Couldn’t reply: ${failureReason}`, thread)
   }
 
   // A member's own entries — its reply, and the rows group-external-writes.ts

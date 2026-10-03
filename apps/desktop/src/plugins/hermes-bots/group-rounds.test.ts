@@ -89,6 +89,10 @@ describe('routing', () => {
       [{ at: 1, from: { kind: 'user', name: 'You' }, text }] as GroupMessage[]
 
     expect(rounds.resolveGroupResponders(user('@builder take this one'), MEMBERS).map(m => m.name)).toEqual(['builder'])
+    expect(rounds.resolveGroupResponders(user('builder take this one'), MEMBERS).map(m => m.name)).toEqual(['builder'])
+    expect(rounds.resolveGroupResponders(user('Hey builder, take this one'), MEMBERS).map(m => m.name)).toEqual([
+      'builder'
+    ])
     expect(rounds.resolveGroupResponders(user('hello team'), MEMBERS)).toHaveLength(3)
     expect(rounds.resolveGroupResponders(user('@everyone standup'), MEMBERS)).toHaveLength(3)
   })
@@ -283,6 +287,128 @@ describe('routing', () => {
 
     expect(room.gateway.calls).toHaveLength(1)
     expect(log(room, 'Core').map(entry => entry.text)).toEqual(['@hermes status?', 'Reply 1 from this device.'])
+  })
+
+  it('persists a member tapback from a pass-only turn without appending or re-driving the room', async () => {
+    const room = await loadRoom({
+      turn: ({ session }) => {
+        const prompt = session.messages.at(-1)
+
+        if (prompt?.role === 'user') {
+          prompt.display_metadata = {
+            reactions: [{ at: 1_700_000_000, author: 'agent', emoji: '❤️' }]
+          }
+        }
+
+        // `react_to_message` can be the whole answer: the core turn may leave
+        // no assistant text row after the tool call.
+        return []
+      }
+    })
+
+    const member: GroupMember = {
+      connectionId: 'local',
+      connectionLabel: 'This device',
+      installId: 'gw-local',
+      name: 'helper',
+      title: ''
+    }
+
+    room.rounds.sendToGroupChat('Core', [member], 'Thank you for handling that.')
+    await settle(room, 'Core')
+
+    expect(log(room, 'Core')).toHaveLength(1)
+    expect(log(room, 'Core')[0].reactions).toEqual([
+      {
+        at: 1_700_000_000_000,
+        emoji: '❤️',
+        from: { gateway: 'gw-local', kind: 'member', name: 'helper', source: 'This device' }
+      }
+    ])
+    expect(room.gateway.calls).toHaveLength(1)
+    expect(room.chat.$groupChats.get().Core.stranded?.helper).toBeUndefined()
+    expect(room.gateway.rpcFor('session.create')[0]?.params.source).toBe('desktop')
+    expect(room.gateway.rpcFor('session.resume').every(call => call.params.source === 'desktop')).toBe(true)
+  })
+
+  it('targets the newest visible message in the member thread instead of the global room tail', async () => {
+    const room = await loadRoom({
+      turn: ({ session }) => {
+        const prompt = session.messages.at(-1)
+
+        if (prompt?.role === 'user') {
+          prompt.display_metadata = {
+            reactions: [{ at: 1_700_000_002, author: 'agent', emoji: '👍' }]
+          }
+        }
+
+        return []
+      }
+    })
+
+    const member: GroupMember = { name: 'helper', title: '' }
+    const roundMembers = await import('./group-round-members')
+
+    room.chat.$groupChats.set({
+      Core: {
+        log: [
+          { at: 1, from: { kind: 'user', name: 'You' }, id: 'thread-a-message', text: 'Thread A', thread: 'a' },
+          { at: 2, from: { kind: 'user', name: 'You' }, id: 'thread-b-message', text: 'Thread B', thread: 'b' }
+        ],
+        watermarks: {}
+      }
+    })
+
+    await roundMembers.runGroupRoundMember(
+      {
+        binding: { isLive: () => true },
+        group: 'Core',
+        isCurrent: () => true,
+        members: [member],
+        startEpoch: 0,
+        thread: 'a'
+      },
+      member
+    )
+
+    expect(log(room, 'Core')[0].reactions?.[0]).toMatchObject({ emoji: '👍', from: { name: 'helper' } })
+    expect(log(room, 'Core')[1].reactions).toBeUndefined()
+    expect(log(room, 'Core')).toHaveLength(2)
+  })
+
+  it('lets a member react to another member message without creating a reply loop', async () => {
+    const room = await loadRoom({
+      turn: ({ profile, session }) => {
+        if (profile === 'research') {
+          return 'The release is live. @builder take a look.'
+        }
+
+        const prompt = session.messages.at(-1)
+
+        if (prompt?.role === 'user') {
+          prompt.display_metadata = {
+            reactions: [{ at: 1_700_000_003, author: 'agent', emoji: '🎉' }]
+          }
+        }
+
+        return []
+      }
+    })
+
+    const members: GroupMember[] = [
+      { name: 'research', title: '' },
+      { name: 'builder', title: '' }
+    ]
+
+    room.rounds.sendToGroupChat('Core', members, '@research ship it')
+    await settle(room, 'Core')
+
+    const entries = log(room, 'Core')
+    const researchReply = entries.find(entry => entry.from.name === 'research')
+
+    expect(researchReply?.reactions?.[0]).toMatchObject({ emoji: '🎉', from: { kind: 'member', name: 'builder' } })
+    expect(entries.map(entry => entry.from.name)).toEqual(['You', 'research'])
+    expect(room.gateway.calls.map(call => call.profile)).toEqual(['research', 'builder'])
   })
 
   // Two Desktops label the same gateway differently ("Central" here, "Studio"
@@ -486,7 +612,7 @@ describe('round lifecycle', () => {
     expect(room.chat.$groupChats.get().Failure.running).toBe(false)
   })
 
-  it('treats a failed member turn as a pass, not a room error', async () => {
+  it('shows a failed member turn in the room without counting it as a reply', async () => {
     const room = await loadRoom({
       turn: ({ profile }) => {
         if (profile === 'builder') {
@@ -500,8 +626,36 @@ describe('round lifecycle', () => {
     room.rounds.sendToGroupChat('Flaky', MEMBERS, 'anyone around?')
     await settle(room, 'Flaky')
 
-    // Just the user message; no error entries.
-    expect(log(room, 'Flaky')).toHaveLength(1)
+    const entries = log(room, 'Flaky')
+
+    expect(entries).toHaveLength(2)
+    expect(entries[1]).toMatchObject({
+      from: { kind: 'member', name: 'builder' },
+      text: '⚠️ Couldn’t reply: gateway hiccup'
+    })
+    // A visible failure remains a failed/pass turn: it does not re-drive the
+    // room as model speech or acknowledge the unseen user delta.
+    expect(room.gateway.calls.filter(call => call.profile === 'builder')).toHaveLength(1)
+    expect(Object.keys(room.chat.$groupChats.get().Flaky.watermarks).some(key => key.endsWith('::builder'))).toBe(false)
+  })
+
+  it('shows the retained OpenRouter quota failure that ended the live group turn', async () => {
+    const room = await loadRoom({
+      retainedErrorAfterSubmit:
+        'OpenRouter API error 402: This request requires more credits because max_tokens was 65536.',
+      turn: () => []
+    })
+
+    room.rounds.sendToGroupChat('Quota', [{ name: 'research', title: '' }], 'talk to each other')
+    await settle(room, 'Quota')
+
+    expect(log(room, 'Quota').map(entry => entry.text)).toEqual([
+      'talk to each other',
+      '⚠️ Couldn’t reply: OpenRouter API error 402: This request requires more credits because max_tokens was 65536.'
+    ])
+    expect(room.activity.currentGroupActivity('Quota')).toContainEqual(
+      expect.objectContaining({ kind: 'failed', member: 'research' })
+    )
   })
 
   it('badges needs-you when a member addresses @user, and clears it on the next user send', async () => {

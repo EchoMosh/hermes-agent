@@ -331,8 +331,12 @@ def _seed_row(record: dict) -> None:
 
 
 def _create_overrides(params: dict) -> tuple:
-    """PER-SESSION (model, reasoning, service_tier) overrides from the composer — never a global config
-    write. ``fast`` presence is the contract: omitted inherits, true pins priority, false pins normal ("")."""
+    """PER-SESSION runtime overrides — never a global config write.
+
+    ``fast`` presence is the contract: omitted inherits, true pins priority,
+    false pins normal (""). ``max_tokens`` is an output ceiling owned by the
+    caller and persists with the session independently of profile changes.
+    """
     create_model = _str_param(params, "model")
     model_override = None
     if create_model:
@@ -345,12 +349,22 @@ def _create_overrides(params: dict) -> tuple:
     service_tier_override = None
     if "fast" in params:
         service_tier_override = "priority" if is_truthy_value(params.get("fast")) else ""
-    return model_override, reasoning_override, service_tier_override
+    raw_max_tokens = params.get("max_tokens")
+    max_tokens_override = (
+        raw_max_tokens
+        if isinstance(raw_max_tokens, int) and not isinstance(raw_max_tokens, bool) and raw_max_tokens > 0
+        else None
+    )
+    return model_override, reasoning_override, service_tier_override, max_tokens_override
 
 
 def _create_session(rid, params: dict, *, copy_parent_history: bool = False) -> dict:
     """``session.create``; ``copy_parent_history`` (``session.branch_stored``) reads the parent's
     transcript server-side and omits it from the reply."""
+    if "max_tokens" in params:
+        raw_max_tokens = params.get("max_tokens")
+        if not isinstance(raw_max_tokens, int) or isinstance(raw_max_tokens, bool) or raw_max_tokens <= 0:
+            return _err(rid, -32602, "max_tokens must be a positive integer")
     # ``profile`` (app-global remote mode): stored so the build and every turn re-bind HERMES_HOME.
     profile_home = _profile_home(profile := (params.get("profile") or "").strip() or None)
     # Reject an incoherent model×provider pair BEFORE any state exists: minting it only defers the
@@ -425,7 +439,12 @@ def _create_session(rid, params: dict, *, copy_parent_history: bool = False) -> 
     with contextlib.suppress(Exception):
         explicit_cwd = bool(raw_cwd) and (remote_cwd or os.path.isdir(os.path.abspath(os.path.expanduser(raw_cwd))))
     _enable_gateway_prompts()
-    session_model_override, create_reasoning_override, create_service_tier_override = _create_overrides(params)
+    (
+        session_model_override,
+        create_reasoning_override,
+        create_service_tier_override,
+        max_tokens_override,
+    ) = _create_overrides(params)
     composer_override_profile = None
     if session_model_override and _flag(params, "follow_profile_config"):
         # Same provenance a mid-chat switch records (_apply_model_switch): without the OWNING profile's
@@ -448,6 +467,7 @@ def _create_session(rid, params: dict, *, copy_parent_history: bool = False) -> 
             "composer_override_profile": composer_override_profile,
             "create_reasoning_override": create_reasoning_override,
             "create_service_tier_override": create_service_tier_override,
+            "max_tokens_override": max_tokens_override,
             "parent_session_id": parent_session_id, "pending_title": _str_param(params, "title") or None,
             "pending_hidden": _flag(params, "hidden"), "room_plumbing": _flag(params, "room_plumbing"),
             "follow_profile_config": _flag(params, "follow_profile_config"),
@@ -653,6 +673,12 @@ class _Resume:
         self.omit_messages, self.eager_build = _flag(params, "omit_messages"), _flag(params, "eager_build")
         # inline_images=False renders image parts as "[image]" (#116511); default keeps data URIs.
         self.inline_images = "inline_images" not in params or _flag(params, "inline_images")
+        raw_max_tokens = params.get("max_tokens")
+        self.max_tokens_override = (
+            raw_max_tokens
+            if isinstance(raw_max_tokens, int) and not isinstance(raw_max_tokens, bool) and raw_max_tokens > 0
+            else None
+        )
 
     def mint(self, prompts: bool = True) -> tuple:
         """``(runtime sid, source, cwd)`` for the live record this resume registers (+ gateway prompts on)."""
@@ -665,11 +691,17 @@ class _Resume:
         """``_deferred_session_record`` with this resume's common fields (lease claimed lazily on turn 1);
         ``overrides`` restores the stored model/provider/reasoning/tier so the deferred build matches eager."""
         if overrides is not None:
-            extra.update(model_override=overrides.get("model_override"), resume_runtime_overrides=overrides or None)
+            extra.update(
+                model_override=overrides.get("model_override"),
+                resume_runtime_overrides=overrides or None,
+                max_tokens_override=overrides.get("max_tokens_override"),
+            )
             model_config = _parse_model_config((self.found or {}).get("model_config"), quiet=True)
             follows_profile = _row_follows_profile(self.found)
         else:
             model_config, follows_profile = {}, False
+        if self.max_tokens_override is not None:
+            extra["max_tokens_override"] = self.max_tokens_override
         record = _deferred_session_record(
             self.target, cols=self.cols, cwd=cwd, history=history, lease=None, source=source,
             close_on_disconnect=_flag(self.params, "close_on_disconnect"),
@@ -681,6 +713,13 @@ class _Resume:
                                            if overrides and overrides.get("model_override") else None),
             )
         return record
+
+    def runtime_overrides(self, stored: dict | None = None) -> dict:
+        """Stored runtime identity plus any caller-owned resume ceiling."""
+        overrides = dict(stored or {})
+        if self.max_tokens_override is not None:
+            overrides["max_tokens_override"] = self.max_tokens_override
+        return overrides
 
     def claim(self, sid: str, record: dict) -> dict | None:
         """Register ``record`` live under the resume lock, or reuse a concurrent winner's session."""
@@ -741,6 +780,7 @@ def _resume_live_unpersisted(ctx: _Resume, live_sid: str, live: dict) -> dict:
                 _rebind_live_transport(live_sid, live, transport)
         else:
             _cancel_ws_orphan_reap(live_sid)
+        _apply_resume_max_tokens(ctx, live)
     messages = ctx.messages(live.get("history") or [])  # count the wire, as every other resume path does
     # The chat's own pick, not the profile default: a warm reattach that reported `_resolve_model()` flipped the
     # Desktop picker on every reload while the session was still live, and back once it had been dropped.
@@ -880,10 +920,23 @@ def _resume_reuse_live(ctx: _Resume, sid: str, session: dict) -> dict:
         return _resume_reuse_live_locked(ctx, sid, session)
 
 
+def _apply_resume_max_tokens(ctx: _Resume, session: dict) -> None:
+    """Apply an explicit resume ceiling to both the record and a live agent."""
+    cap = ctx.max_tokens_override
+    if cap is None:
+        return
+    session["max_tokens_override"] = cap
+    if isinstance(overrides := session.get("resume_runtime_overrides"), dict):
+        session["resume_runtime_overrides"] = {**overrides, "max_tokens_override": cap}
+    if (agent := session.get("agent")) is not None:
+        agent.max_tokens = cap
+
+
 def _resume_reuse_live_locked(ctx: _Resume, sid: str, session: dict) -> dict:
     """Reuse with _session_resume_lock already held (including the eager double-check)."""
     if (refusal := _reattach_refusal(ctx.rid, sid, session)) is not None:
         return refusal
+    _apply_resume_max_tokens(ctx, session)
     _cancel_ws_orphan_reap(sid)  # unconditionally: the fast path must never race the reap Timer
     payload = _live_session_payload(sid, session, cols=ctx.cols, touch=True, omit_messages=ctx.omit_messages,
                                     transport=current_transport() or _stdio_transport,
@@ -947,7 +1000,7 @@ def _resume_deferred(ctx: _Resume) -> dict:
     """Bounded ack; the transcript hydrates in the background (the ONE history read) and pages over REST."""
     sid, source, cwd = ctx.mint()
     with _profile_build_scope(ctx.profile_home):
-        overrides = _stored_session_runtime_overrides(ctx.found)
+        overrides = ctx.runtime_overrides(_stored_session_runtime_overrides(ctx.found))
     record = ctx.record(source, cwd, [], overrides,
                         todo_state=_todo_state_from_db(ctx.db, ctx.target))
     record.update(resume_history_ready=threading.Event(), resume_hydrating=True,
@@ -974,7 +1027,7 @@ def _resume_cold(ctx: _Resume) -> dict:
     except Exception as e:
         return _err(ctx.rid, 5000, resume_failed_message(e))
     with _profile_build_scope(ctx.profile_home):
-        overrides = _stored_session_runtime_overrides(ctx.found)
+        overrides = ctx.runtime_overrides(_stored_session_runtime_overrides(ctx.found))
     record = ctx.record(source, cwd, history, overrides, display_history_prefix=ctx.display_prefix(),
                         todo_state=_todo_state_from_history(history))
     if (reused := ctx.claim(sid, record)) is not None:
@@ -995,7 +1048,7 @@ def _resume_eager(ctx: _Resume) -> dict:
             display_history_prefix = ctx.display_prefix()
             # Profile db so turns persist to the right state.db; stored runtime identity so switching chats does
             # not inherit another chat's global model.
-            stored_runtime_overrides = _stored_session_runtime_overrides(ctx.found)
+            stored_runtime_overrides = ctx.runtime_overrides(_stored_session_runtime_overrides(ctx.found))
             agent = _make_agent_in_context(
                 sid, ctx.target, session_db=ctx.db, platform_override=source,
                 cwd_override=ctx.profile_resume_cwd or None,
@@ -1023,6 +1076,8 @@ def _resume_eager(ctx: _Resume) -> dict:
             if (session := _sessions.get(sid)) is not None:
                 if stored_runtime_overrides.get("model_override") is not None:
                     session["model_override"] = stored_runtime_overrides["model_override"]
+                if stored_runtime_overrides.get("max_tokens_override") is not None:
+                    session["max_tokens_override"] = stored_runtime_overrides["max_tokens_override"]
                 model_config = _parse_model_config(ctx.found.get("model_config"), quiet=True)
                 if _row_follows_profile(ctx.found):
                     session["follow_profile_config"] = True
@@ -1049,6 +1104,10 @@ def _resume_eager(ctx: _Resume) -> dict:
 
 @method("session.resume")
 def _(rid, params: dict) -> dict:
+    if "max_tokens" in params:
+        raw_max_tokens = params.get("max_tokens")
+        if not isinstance(raw_max_tokens, int) or isinstance(raw_max_tokens, bool) or raw_max_tokens <= 0:
+            return _err(rid, -32602, "max_tokens must be a positive integer")
     if not (target := params.get("session_id", "")):
         return _err(rid, 4006, "session_id required")
     ctx = _Resume(rid, params, target)

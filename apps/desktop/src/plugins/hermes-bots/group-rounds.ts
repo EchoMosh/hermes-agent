@@ -188,6 +188,23 @@ export function resolveGroupResponders(log: GroupMessage[], members: GroupMember
   for (const entry of sinceLastUser) {
     const parsed = parseGroupChatMentions(entry.text, members)
 
+    // People often address a teammate by name at the start of a sentence,
+    // without typing @. Reuse the exact handle resolver so a unique leading
+    // name gets the turn; ordinary room messages still go to everyone.
+    if (entry.from.kind === 'user' && !parsed.everyone && parsed.mentioned.size === 0) {
+      const leadingName = String(entry.text || '').match(/^\s*(?:hey\s+|hi\s+)?([a-z0-9][a-z0-9._-]*)[,!:]?\s+\S/i)?.[1]
+
+      if (leadingName) {
+        const addressed = parseGroupChatMentions(`@${leadingName}`, members)
+
+        if (addressed.mentioned.size === 1) {
+          for (const key of addressed.mentioned) {
+            parsed.mentioned.add(key)
+          }
+        }
+      }
+    }
+
     if (parsed.everyone) {
       everyone = true
     }

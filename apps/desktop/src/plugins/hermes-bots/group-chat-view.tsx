@@ -10,6 +10,8 @@
  * touch stay below, in `group-panes.ts`.
  */
 
+import './group-chat-view.css'
+
 import * as sdk from '@hermes/plugin-sdk'
 import {
   atom,
@@ -72,7 +74,7 @@ import {
   updateGroupChat
 } from './group-chat'
 import type { GroupChatRoom } from './group-chat'
-import { GroupClarifyCard, GroupImageControls, GroupMentionInput } from './group-chat-parts'
+import { GroupClarifyCard, GroupImageControls, GroupMentionInput, GroupMessageReactions } from './group-chat-parts'
 import type { GroupRoomPrompt } from './group-chat-parts'
 import { GroupMemberPicker } from './group-chat-view-members'
 import { compressGroupMemberHistory } from './group-compress'
@@ -211,6 +213,7 @@ export async function disbandGroupChat(group: string, members: RosterRow[]) {
           sessions: room.sessions || {},
           sessionOwners: room.sessionOwners || {},
           members: Array.isArray(room.members) ? room.members : [],
+          kind: room.kind,
           roomId: typeof room.roomId === 'string' && room.roomId ? room.roomId : null,
           image: room.image || null,
           syncRevision: Math.max(0, Number(room.syncRevision || 0))
@@ -1243,7 +1246,7 @@ export function GroupChatWorkspace({ group, members, onBack, visible = true }: G
           meta
         )
 
-    const entryKey = `${entry.at}:${index}`
+    const entryKey = entry.id || `${entry.at}:${index}`
     const revealed = !isUser && revealedSpeaker === entryKey
 
     // Clicked: append the gateway name so same-named agents on
@@ -1265,9 +1268,11 @@ export function GroupChatWorkspace({ group, members, onBack, visible = true }: G
     return (
       <div
         className={cn(
-          'group flex items-start gap-2',
+          'group relative flex items-start gap-2',
           isUser ? 'rounded-md bg-(--chrome-action-hover) px-2 py-1.5' : 'px-2 py-1'
         )}
+        data-author-kind={entry.from.kind}
+        data-slot="group-chat-entry"
         key={entryKey}
       >
         {appearance ? (
@@ -1360,6 +1365,7 @@ export function GroupChatWorkspace({ group, members, onBack, visible = true }: G
               )}
             </div>
           ) : null}
+          <GroupMessageReactions group={group} message={entry} />
         </div>
       </div>
     )
@@ -1430,7 +1436,7 @@ export function GroupChatWorkspace({ group, members, onBack, visible = true }: G
 
   return (
     <div
-      className="relative flex h-full flex-col"
+      className="merna-group-chat relative flex h-full flex-col"
       data-preview-annotate-composer-key={composerKey}
       data-preview-annotate-destination="group"
       data-preview-annotate-group={group}

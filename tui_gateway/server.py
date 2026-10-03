@@ -1026,13 +1026,18 @@ def _deferred_build_agent_kwargs(current: dict, session_db) -> dict:
     if resume_sid := current.get("resume_session_id"):
         kw["session_id"] = resume_sid
     resume_overrides = current.get("resume_runtime_overrides")
+    # Room plumbing intentionally drops its stored model/provider so it can
+    # follow the member profile, while retaining the caller-owned output cap.
+    if isinstance(resume_overrides, dict) and resume_overrides.get("max_tokens_override") is not None:
+        kw["max_tokens_override"] = resume_overrides["max_tokens_override"]
     if isinstance(resume_overrides, dict) and resume_overrides and _overrides_have_routable_provider(resume_overrides):
         kw.update(resume_overrides)
     else:
         if override := current.get("model_override"):
             kw["model_override"] = override
         kw.update({k: v for k, v in (("reasoning_config_override", current.get("create_reasoning_override")),
-                                     ("service_tier_override", current.get("create_service_tier_override")))
+                                     ("service_tier_override", current.get("create_service_tier_override")),
+                                     ("max_tokens_override", current.get("max_tokens_override")))
                    if v is not None})
     return kw
 
@@ -1654,6 +1659,10 @@ def _stored_session_runtime_overrides(row: dict | None) -> dict:
     if not row:
         return {}
     model_config = _parse_model_config(row.get("model_config"), quiet=True)
+    overrides: dict = {}
+    max_tokens = model_config.get("max_tokens")
+    if isinstance(max_tokens, int) and not isinstance(max_tokens, bool) and max_tokens > 0:
+        overrides["max_tokens_override"] = max_tokens
     _row_title = str(row.get("title") or "").strip()
     room_plumbing = model_config.get("room_plumbing") or (row.get("hidden") and _row_title.startswith("Group:"))
     composer_profile = model_config.get("composer_override_profile")
@@ -1662,8 +1671,7 @@ def _stored_session_runtime_overrides(row: dict | None) -> dict:
         str(composer_profile.get("provider") or "").strip(),
     ) == _config_model_target()
     if room_plumbing or (_row_follows_profile(row) and not composer_profile_matches):
-        return {}
-    overrides: dict = {}
+        return overrides
     model = str(row.get("model") or model_config.get("model") or "").strip()
     # Canonical route reader shared with CLI --resume: nested ``gateway_runtime`` (the route the messaging
     # gateway last ran) before the TUI's top-level keys, then a routable ``billing_provider`` (#125942).
@@ -1721,11 +1729,19 @@ def _runtime_model_config(agent, existing: dict | None = None) -> dict:
         except Exception:
             logger.debug("custom provider identity lookup failed", exc_info=True)
     reasoning_config = getattr(agent, "reasoning_config", None)
+    max_tokens = getattr(agent, "max_tokens", None)
     live = {
         "model": model, "provider": provider, "base_url": base_url, "api_mode": attr("api_mode"),
         # An empty dict is still a real (present) reasoning config.
         "reasoning_config": reasoning_config if isinstance(reasoning_config, dict) else None,
         "service_tier": getattr(agent, "service_tier", None),
+        "max_tokens": (
+            max_tokens
+            if isinstance(max_tokens, int)
+            and not isinstance(max_tokens, bool)
+            and max_tokens > 0
+            else None
+        ),
     }
     for key, value in live.items():
         if value or isinstance(value, dict):
@@ -1751,6 +1767,8 @@ def _persist_live_session_runtime(session: dict | None) -> None:
         if (tier_override := session.get("create_service_tier_override")) is not None:
             # agent.service_tier is None for explicit normal; without this the distinction is erased on every persist.
             model_config["service_tier"] = tier_override or "normal"
+        if (max_tokens := session.get("max_tokens_override")) is not None:
+            model_config["max_tokens"] = int(max_tokens)
         model = str(getattr(agent, "model", "") or "").strip()
         if hasattr(db, "update_session_meta"):
             db.update_session_meta(session_key, json.dumps(model_config), model or None)
@@ -2636,12 +2654,15 @@ def _make_agent(
     sid: str, key: str, session_id: str | None = None, session_db=None,
     model_override: dict | str | None = None, provider_override: str | None = None,
     reasoning_config_override: dict | None = None, service_tier_override: str | None = None,
+    max_tokens_override: int | None = None,
     platform_override: str | None = None, context_cwd_is_launch_artifact: bool | None = None,
     cwd_override: str | None = None, auth_user_id: str | None = None):
     # AC-4 test seam: dead unless armed by the isolated certify harness.
     from tui_gateway.synthetic_turn import maybe_build_synthetic_agent
     synthetic = maybe_build_synthetic_agent(session_id or key, model_override)
     if synthetic is not None:
+        if max_tokens_override is not None:
+            synthetic.max_tokens = max_tokens_override
         return synthetic
     from run_agent import AIAgent
     # MCP discovery runs in a daemon thread (a dead server can't freeze the shell); the agent snapshots its tool
@@ -2663,6 +2684,7 @@ def _make_agent(
         session = _sessions.get(sid)
     agent = AIAgent(
         model=model, max_iterations=_cfg_max_turns(cfg, 500), provider=runtime.get("provider"),
+        max_tokens=max_tokens_override,
         requested_provider=runtime.get("requested_provider"),
         base_url=runtime.get("base_url"), api_key=runtime.get("api_key"), api_mode=runtime.get("api_mode"),
         acp_command=runtime.get("command"), acp_args=runtime.get("args"),
@@ -2840,6 +2862,7 @@ def _deferred_session_record(
     close_on_disconnect: bool = False, display_history_prefix: list | None = None,
     profile_home: Path | None = None, lazy: bool = False, model_override=None,
     resume_runtime_overrides: dict | None = None, todo_state: dict | None = None,
+    max_tokens_override: int | None = None,
     explicit_cwd: bool = False) -> dict:
     """A live-session record whose AIAgent is built later (lazy watch / cold resume) — _init_session's shape minus the agent."""
     now = time.time()
@@ -2850,6 +2873,7 @@ def _deferred_session_record(
         "edit_snapshots": {}, "explicit_cwd": bool(explicit_cwd), "history": history,
         "history_lock": threading.Lock(), "history_version": 0, "image_counter": 0,
         "inflight_turn": None, "last_active": now, "lazy": lazy, "model_override": model_override,
+        "max_tokens_override": max_tokens_override,
         "pending_title": None,
         "profile_home": str(profile_home) if profile_home is not None else None,
         "resume_runtime_overrides": resume_runtime_overrides, "resume_session_id": session_key,
@@ -3651,6 +3675,7 @@ from . import (  # noqa: E402
     methods_session_control as _methods_session_control, methods_subagents as _methods_subagents,
     methods_vault as _methods_vault, methods_free_tier as _methods_free_tier,
     methods_connectors as _methods_connectors, methods_connectors_account as _methods_connectors_account,
+    methods_computer as _methods_computer,
     methods_display as _methods_display, methods_display_watch as _methods_display_watch,
     methods_onboarding as _methods_onboarding, methods_i18n as _methods_i18n,
     methods_shared_metrics as _methods_shared_metrics)
@@ -3664,7 +3689,7 @@ for _m in (
     _methods_config_set, _methods_complete, _methods_tools, _methods_profiles, _methods_images,
     _methods_bot_relay, _prompt_turn, _billing_view, _methods_projects, _methods_session_foreign,
     _methods_session_control, _methods_subagents, _methods_vault, _methods_free_tier, _methods_connectors,
-    _methods_connectors_account, _methods_display, _methods_display_watch, _methods_onboarding,
+    _methods_connectors_account, _methods_computer, _methods_display, _methods_display_watch, _methods_onboarding,
     _methods_i18n, _methods_shared_metrics):
     _m.register(sys.modules[__name__])
 del _m

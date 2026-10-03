@@ -27,11 +27,13 @@ import { vi } from 'vitest'
 export interface ScriptedMessage {
   content: string
   display_kind?: string
+  display_metadata?: Record<string, unknown> | string
   role: string
+  timestamp?: number
 }
 
 export interface ScriptedSession {
-  contracts?: { follow_profile_config: boolean; room_plumbing: boolean }
+  contracts?: { follow_profile_config: boolean; max_tokens?: number; room_plumbing: boolean }
   messages: ScriptedMessage[]
   profile: string
   runtime: string
@@ -236,6 +238,7 @@ export function createGroupGateway(options: GatewayOptions = {}): ScriptedGatewa
       const session: ScriptedSession = {
         contracts: {
           follow_profile_config: params.follow_profile_config === true,
+          max_tokens: typeof params.max_tokens === 'number' ? params.max_tokens : undefined,
           room_plumbing: params.room_plumbing === true
         },
         messages: [],

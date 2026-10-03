@@ -1,0 +1,85 @@
+/* Group rooms share the light mint conversation palette used by the Merna
+ * roster and Work pane, even when the desktop's global appearance is dark. */
+.merna-group-chat {
+  --merna-room-background: #f8fdfa;
+  --merna-room-surface: #eef8f4;
+  --merna-room-surface-strong: #e4f2ec;
+  --merna-room-hover: #e3f3ec;
+  --merna-room-active: #dcefe8;
+  --merna-room-text: #15516b;
+  --merna-room-text-secondary: #527a8b;
+  --merna-room-text-tertiary: #688894;
+  --merna-room-text-quaternary: #78939b;
+  --merna-room-stroke: #d4e7e1;
+  --merna-room-stroke-soft: #e2eee9;
+  --merna-room-accent: #188f91;
+
+  --background: var(--merna-room-background);
+  --foreground: var(--merna-room-text);
+  --dt-background: var(--merna-room-background);
+  --dt-foreground: var(--merna-room-text);
+  --dt-card: #fff;
+  --dt-card-foreground: var(--merna-room-text);
+  --dt-muted: var(--merna-room-surface);
+  --dt-muted-foreground: var(--merna-room-text-secondary);
+  --dt-primary: var(--merna-room-accent);
+  --dt-primary-foreground: #fff;
+  --dt-border: var(--merna-room-stroke);
+  --dt-input: var(--merna-room-stroke);
+  --ui-bg-primary: var(--merna-room-background);
+  --ui-bg-secondary: var(--merna-room-surface);
+  --ui-bg-tertiary: var(--merna-room-surface-strong);
+  --ui-bg-quaternary: var(--merna-room-active);
+  --ui-bg-elevated: #fff;
+  --ui-text-primary: var(--merna-room-text);
+  --ui-text-secondary: var(--merna-room-text-secondary);
+  --ui-text-tertiary: var(--merna-room-text-tertiary);
+  --ui-text-quaternary: var(--merna-room-text-quaternary);
+  --ui-stroke-primary: #b8dcd0;
+  --ui-stroke-secondary: var(--merna-room-stroke);
+  --ui-stroke-tertiary: var(--merna-room-stroke-soft);
+  --ui-accent: var(--merna-room-accent);
+  --ui-accent-secondary: #288f95;
+  --ui-control-hover-background: var(--merna-room-hover);
+  --ui-control-active-background: var(--merna-room-active);
+  --ui-row-hover-background: var(--merna-room-hover);
+  --ui-row-active-background: var(--merna-room-active);
+  --ui-chat-bubble-background: var(--merna-room-hover);
+  --ui-chat-bubble-opaque-background: var(--merna-room-hover);
+  --ui-inline-code-background: var(--merna-room-surface);
+  --chrome-action-hover: var(--merna-room-hover);
+
+  color-scheme: light;
+  background: var(--merna-room-background);
+  color: var(--merna-room-text);
+}
+
+.merna-group-chat ::selection {
+  background: color-mix(in srgb, var(--merna-room-accent) 24%, transparent);
+}
+
+/* Room messages read as one conversation, with the same comfortable type
+ * scale as direct chats. The reaction affordance stays discoverable on hover
+ * without reserving an empty row under every message. */
+.merna-group-chat [data-slot='group-chat-entry'] {
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.merna-group-chat [data-slot='group-chat-entry'][data-author-kind='user'] {
+  background: var(--merna-room-surface);
+}
+
+.merna-group-chat [data-slot='group-chat-message-content'] {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--merna-room-text);
+}
+
+.merna-group-chat [data-slot='group-chat-message-reactions'][data-empty='true'] {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  min-height: 0;
+  margin: 0;
+}

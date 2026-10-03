@@ -61,7 +61,8 @@ vi.mock('./avatar', () => ({ avatarColor: () => '#888', botAppearance: () => ({}
 vi.mock('./group-chat-parts', () => ({
   GroupClarifyCard: () => null,
   GroupImageControls: () => null,
-  GroupMentionInput: () => null
+  GroupMentionInput: () => null,
+  GroupMessageReactions: () => null
 }))
 
 beforeEach(() => {

@@ -121,7 +121,7 @@ export function renderRosterToolbar({
                 onSelect={() => setGroupCreateOpen(true)}
               >
                 <Codicon className="mr-1.5" name="organization" />
-                {b.group.newTitle}
+                New group DM
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setSectionDialog({ mode: 'create' })}>

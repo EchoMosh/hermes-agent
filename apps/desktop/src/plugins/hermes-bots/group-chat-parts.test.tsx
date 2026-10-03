@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -22,6 +23,9 @@ vi.mock('@hermes/plugin-sdk', async () => {
     cn: (...values: unknown[]) => values.filter(Boolean).join(' '),
     Codicon: () => null,
     Input: (props: React.ComponentProps<'input'>) => <input {...props} />,
+    Popover: ({ children }: { children: ReactNode }) => <>{children}</>,
+    PopoverContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    PopoverTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
     RowButton: (props: React.ComponentProps<'button'>) => <button type="button" {...props} />,
     Textarea: (props: React.ComponentProps<'textarea'>) => <textarea {...props} />,
     useI18n: () => ({ t: (_key: string, fallback: string) => fallback }),
@@ -83,6 +87,54 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+})
+
+describe('message reactions', () => {
+  it('exposes an accessible picker and durable counted reactions for either message role', async () => {
+    const [{ GroupMessageReactions }, chat, shared, utils] = await Promise.all([
+      import('./group-chat-parts'),
+      import('./group-chat'),
+      import('./shared'),
+      import('./group-test-utils')
+    ])
+
+    const gateway = utils.createGroupGateway()
+
+    Object.assign(host, gateway.host)
+    shared.setPluginCtx(utils.scriptedStorage(gateway.storage))
+
+    const message = {
+      at: 1,
+      from: { kind: 'member' as const, name: 'builder' },
+      id: 'agent-message',
+      reactions: [
+        { at: 10, emoji: '❤️', from: { kind: 'user' as const, name: 'You' } },
+        { at: 11, emoji: '❤️', from: { kind: 'member' as const, name: 'reviewer', gateway: 'gw-review' } },
+        { at: 12, emoji: '❤️', from: { kind: 'member' as const, name: 'lead', gateway: 'gw-lead' } }
+      ],
+      text: 'Done'
+    }
+
+    chat.$groupChats.set({ Room: { log: [message], watermarks: { builder: 1 } } })
+    const view = render(<GroupMessageReactions group="Room" message={message} />)
+
+    expect(screen.getByRole('button', { name: 'Add reaction' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'React with 👍' })).toBeDefined()
+    const count = screen.getByRole('button', { name: '❤️ reaction, 3' })
+
+    expect(count.getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(count)
+
+    const stored = (gateway.storage.get('group-chats') as Record<string, { log: (typeof message)[] }>).Room
+
+    expect(stored.log).toHaveLength(1)
+    expect(stored.log[0].id).toBe('agent-message')
+    expect(stored.log[0].reactions?.find(reaction => reaction.from.kind === 'user')?.emoji).toBeNull()
+
+    const updated = chat.$groupChats.get().Room.log[0]
+    view.rerender(<GroupMessageReactions group="Room" message={updated} />)
+    expect(screen.getByRole('button', { name: '❤️ reaction, 2' }).getAttribute('aria-pressed')).toBe('false')
+  })
 })
 
 describe('the @-token at the caret', () => {

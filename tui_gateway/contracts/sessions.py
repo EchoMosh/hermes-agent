@@ -129,6 +129,10 @@ class SessionCreateParams(ProfileParams):
     provider: str | None = None
     reasoning_effort: str | None = None
     fast: bool | None = None  # presence is the contract: omitted inherits, true pins priority, false pins normal
+    # Optional per-session output ceiling. Callers such as group-room plumbing
+    # can bound one background surface without mutating the profile's model
+    # configuration (and therefore every normal chat using that profile).
+    max_tokens: int | None = Field(default=None, ge=1)
     close_on_disconnect: bool = False
     hidden: bool = False
     room_plumbing: bool = False
@@ -188,6 +192,10 @@ class SessionResumeParams(SessionParams):
     omit_messages: bool = False
     eager_build: bool = False
     close_on_disconnect: bool = False
+    # Optional caller-owned ceiling for this existing session. This lets a
+    # bounded surface adopt sessions created by an older client/backend while
+    # leaving ordinary resumes unchanged when omitted.
+    max_tokens: int | None = Field(default=None, ge=1)
     # False: render image parts as "[image]" instead of their data URIs — a remote client reads a
     # transcript in kilobytes instead of re-transmitting every stored attachment (#116511).
     inline_images: bool = True

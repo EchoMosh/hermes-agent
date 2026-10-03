@@ -174,18 +174,30 @@ export interface GroupMessageAuthor {
   gateway?: string
 }
 
+/** One participant's durable reaction slot on a room message. A null emoji is
+ *  a removal tombstone: bounded gateway mirrors merge independently, so
+ *  deleting the record would let an older mirror resurrect the reaction. */
+export interface GroupMessageReaction {
+  at: number
+  emoji: null | string
+  from: GroupMessageAuthor
+}
+
 export interface GroupMessage {
   /** Milliseconds. */
   at: number
   from: GroupMessageAuthor
   id?: string
   images?: Attachment[]
+  reactions?: GroupMessageReaction[]
   text: string
   /** Messages predating threading carry the sentinel thread `'legacy'`. */
   thread?: string
   /** Set on the ui_meta projection when `text` was cut to the sync budget. */
   truncated?: boolean
 }
+
+export type GroupRoomKind = 'channel' | 'group-dm'
 
 export interface GroupHold {
   at?: number
@@ -203,6 +215,8 @@ export interface GroupChat {
   heldMessages?: Record<string, string[]>
   holds?: Record<string, GroupHold>
   image?: null | string
+  /** Optional for compatibility. Rooms written before channels are group DMs. */
+  kind?: GroupRoomKind
   log: GroupMessage[]
   members?: GroupMember[]
   /** Immutable identity, so a rename doesn't fork the room. */
@@ -215,7 +229,10 @@ export interface GroupChat {
   sessions?: Record<string, string | true>
   /** A member turn this Desktop is not (or no longer) polling: the message-count baseline to
    *  harvest its late reply from. `turn` names the poll that owns it while that poll runs. */
-  stranded?: Record<string, number | { before: number; thread?: string; turn?: string }>
+  stranded?: Record<
+    string,
+    number | { before: number; targetMessageId?: string; thread?: string; turn?: string }
+  >
   /** #93813: how far each member's external-write reconcile sweep has read
    *  into that member's per-group session transcript (absolute row index of
    *  the last mirrored row + 1). Persisted so external posts aren't rescanned

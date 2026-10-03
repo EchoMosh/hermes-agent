@@ -51,9 +51,18 @@ import { rosterSectionRenderers } from './roster-pane-sections'
 import { renderRosterToolbar } from './roster-pane-toolbar'
 import { botNeedsHandleLabel, rosterGatewayOptions } from './roster-sections'
 import { RosterVibeFooter, RosterVibeNav } from './roster-vibe-nav'
+import type { RosterVibeView } from './roster-vibe-nav'
 import { botWorkspaceOwnerKey, setBotsWorkspaceOwner } from './routing'
 import { activeBots, useTurnBusy } from './row-helpers'
-import type { BotMeta, GatewaySource, GroupMember, RosterActivityFilter, RosterKindFilter, RosterRow } from './types'
+import type {
+  BotMeta,
+  GatewaySource,
+  GroupMember,
+  GroupRoomKind,
+  RosterActivityFilter,
+  RosterKindFilter,
+  RosterRow
+} from './types'
 import {
   $botSections,
   $draggingBot,
@@ -243,7 +252,7 @@ export function BotsPane() {
   const activeConnectionId = host.state.connectionId?.get?.() || 'local'
   const [createOpen, setCreateOpen] = useState(false)
   const [teamExpanded, setTeamExpanded] = useState(true)
-  const [groupCreateOpen, setGroupCreateOpen] = useState(false)
+  const [roomCreateKind, setRoomCreateKind] = useState<null | GroupRoomKind>(null)
   const [editing, setEditing] = useState<null | RosterRow>(null)
   // `path` is the profile directory the gateway reports on a profiles.list row;
   // it is not part of the shared RosterRow model, so it rides as an extra here.
@@ -300,6 +309,7 @@ export function BotsPane() {
     selectionHydrated && rosterHydrated ? rosterWithSelectedOwner(source, sourceSnapshot, selectedRosterKey) : source
 
   const { roster, activityOf, isPinned } = sortRosterBots(sourceWithSelectedOwner, allMeta)
+  const routableBotCount = roster.reduce((count, bot) => count + (bot?.ghost ? 0 : 1), 0)
 
   // Sections made on ANOTHER desktop arrive as id + name on each member's
   // ui_meta; rebuild the records this machine has never seen so the roster
@@ -332,6 +342,37 @@ export function BotsPane() {
     }
   }, [gatewayFilterExists])
   const hiddenExpanded = useValue($showHiddenBots)
+
+  const activeVibeView: null | RosterVibeView =
+    query || gatewayFilter !== 'all'
+      ? null
+      : rowKindFilter === 'bots' && activityFilter === 'all'
+        ? 'dms'
+        : rowKindFilter === 'all' && activityFilter === 'all'
+          ? 'home'
+          : null
+
+  const navigateVibeView = (view: RosterVibeView): void => {
+    if (view === 'activity') {
+      host.revealPane('merna-computer:pane')
+
+      return
+    }
+
+    setTeamExpanded(true)
+    setQuery('')
+    setGatewayFilter('all')
+
+    if (view === 'dms') {
+      setRowKindFilter('bots')
+      setActivityFilter('all')
+
+      return
+    }
+
+    setRowKindFilter('all')
+    setActivityFilter('all')
+  }
 
   const {
     activeSourceRoster,
@@ -475,7 +516,18 @@ export function BotsPane() {
   return (
     <div className="merna-bots-rail flex h-full flex-col">
       <div className="merna-bots-scroll min-h-0 flex-1 overflow-y-auto">
-        <RosterVibeNav />
+        <RosterVibeNav
+          activeRoom={groupChatName}
+          activeView={activeVibeView}
+          canCreateChannel={routableBotCount >= 2}
+          canCreateGroupDm={routableBotCount >= 2}
+          groupNames={groupNames}
+          groupRooms={groupRooms}
+          onCreateChannel={() => setRoomCreateKind('channel')}
+          onCreateGroupDm={() => setRoomCreateKind('group-dm')}
+          onNavigate={navigateVibeView}
+          onOpenRoom={openGroupChat}
+        />
         {renderRosterToolbar({
           b,
           teamExpanded,
@@ -484,7 +536,7 @@ export function BotsPane() {
           activeSourceRoster,
           roster,
           setCreateOpen,
-          setGroupCreateOpen,
+          setGroupCreateOpen: open => setRoomCreateKind(open ? 'group-dm' : null),
           setSectionDialog,
           showRosterTools,
           showRosterSearch,
@@ -539,8 +591,8 @@ export function BotsPane() {
         t,
         createOpen,
         setCreateOpen,
-        groupCreateOpen,
-        setGroupCreateOpen,
+        roomCreateKind,
+        setRoomCreateKind,
         editing,
         setEditing,
         deleting,

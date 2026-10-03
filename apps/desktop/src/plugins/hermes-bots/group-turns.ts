@@ -26,9 +26,15 @@ import {
   groupSessionOwner,
   hasThreadScopedGroupSession
 } from './group-membership'
+import { setGroupMessageReaction } from './group-message-reaction-store'
 import { GROUP_PROMPT_HEADER_PREFIX } from './group-round-prompt'
 import { botConnectionRoute, requestForBot } from './routing'
 import type { Attachment, GroupMember, GroupPrompt, GroupPromptQuestion, ProfileRoute } from './types'
+
+/** Group turns are short conversational contributions. Bounding their output
+ *  keeps a profile's large model default from asking providers to reserve an
+ *  unaffordable 64k completion, without changing ordinary 1:1 sessions. */
+export const GROUP_TURN_MAX_TOKENS = 4096
 
 /** "(pass)" (loosely: pass / (pass) / pass.) or empty = the member stayed silent. */
 export function isGroupPassText(text: unknown) {
@@ -47,8 +53,83 @@ export function isGroupPassText(text: unknown) {
 interface GroupTurnTranscriptMessage {
   content?: string | Array<string | { text?: string }>
   display_kind?: string
+  display_metadata?: unknown
   role?: string
   text?: string
+  timestamp?: number
+}
+
+interface GroupTurnAgentReaction {
+  at: number
+  emoji: string
+}
+
+function groupTurnDisplayMetadata(value: unknown): null | Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
+/** The member's `react_to_message` tool persists its tapback on the hidden
+ * group prompt row. Resolve only this turn's header-prefixed user row; its
+ * backend row id never becomes room identity. */
+function groupTurnAgentReaction(messages: GroupTurnTranscriptMessage[], before: number): GroupTurnAgentReaction | null {
+  const prompt = messages.find(
+    (message, index) =>
+      index >= before &&
+      message?.role === 'user' &&
+      groupTranscriptRowText(message).startsWith(GROUP_PROMPT_HEADER_PREFIX)
+  )
+
+  const metadata = groupTurnDisplayMetadata(prompt?.display_metadata)
+  const reactions = metadata?.reactions
+
+  if (!Array.isArray(reactions)) {
+    return null
+  }
+
+  const reaction = reactions.find(
+    value => value && typeof value === 'object' && (value as { author?: unknown }).author === 'agent'
+  ) as { at?: unknown; emoji?: unknown } | undefined
+
+  const emoji = typeof reaction?.emoji === 'string' ? reaction.emoji.trim().slice(0, 32) : ''
+
+  if (!emoji) {
+    return null
+  }
+
+  const rawAt = Number(reaction?.at ?? prompt?.timestamp)
+  const at = Number.isFinite(rawAt) && rawAt > 0 ? (rawAt < 1_000_000_000_000 ? rawAt * 1000 : rawAt) : Date.now()
+
+  return { at, emoji }
+}
+
+function syncGroupTurnAgentReaction(
+  group: string,
+  member: GroupMember,
+  targetMessageId: null | string | undefined,
+  messages: GroupTurnTranscriptMessage[],
+  before: number
+): boolean {
+  const reaction = groupTurnAgentReaction(messages, before)
+
+  if (reaction && targetMessageId) {
+    setGroupMessageReaction(group, targetMessageId, reaction.emoji, groupMemberAuthor(member), reaction.at)
+  }
+
+  return Boolean(reaction)
 }
 
 /** What a finished turn left behind: the member's reply, or the notice of the
@@ -201,7 +282,12 @@ const GROUP_SESSION_BACKGROUND_RESUME_OPTIONS = { timeoutMs: 180_000 } as const
 const GROUP_SESSION_CREATE_OPTIONS = { spawnPriority: 'foreground' } as const
 
 function resumeGroupSession(member: GroupMember, params: Record<string, unknown>): Promise<GroupSessionSnapshot> {
-  return requestForBot<GroupSessionSnapshot>(member, 'session.resume', params, GROUP_SESSION_RESUME_OPTIONS)
+  return requestForBot<GroupSessionSnapshot>(
+    member,
+    'session.resume',
+    { ...params, source: 'desktop', max_tokens: GROUP_TURN_MAX_TOKENS },
+    GROUP_SESSION_RESUME_OPTIONS
+  )
 }
 
 /** The error message of a RETAINED failed turn, else null. The gateway keeps
@@ -388,6 +474,7 @@ export async function ensureGroupChatSession(
       'session.create',
       {
         profile: member.name,
+        source: 'desktop',
         title,
         // Room member sessions are plumbing — always hidden from the sidebar.
         hidden: true,
@@ -396,7 +483,8 @@ export async function ensureGroupChatSession(
         // stored model/provider pin. Older gateways ignore the unknown params;
         // the server's hidden + "Group: " title fallback then covers legacy.
         room_plumbing: true,
-        follow_profile_config: true
+        follow_profile_config: true,
+        max_tokens: GROUP_TURN_MAX_TOKENS
       },
       GROUP_SESSION_CREATE_OPTIONS
     )) as { session_id?: string; stored_session_id?: string }
@@ -861,7 +949,8 @@ export async function runGroupChatMemberTurn(
   member: GroupMember,
   prompt: string,
   thread: string,
-  images?: Attachment[]
+  images?: Attachment[],
+  targetMessageId?: null | string
 ): Promise<null | string> {
   // #93602: hold the member's route socket for the whole turn. Without the
   // lease, every RPC below rides its own request-scoped socket lease; the
@@ -876,7 +965,9 @@ export async function runGroupChatMemberTurn(
   try {
     releaseTurnLease = await retainGroupTurnRoute(member)
 
-    return binding.isLive() ? await runGroupChatMemberTurnLeased(group, member, prompt, thread, images) : null
+    return binding.isLive()
+      ? await runGroupChatMemberTurnLeased(group, member, prompt, thread, images, targetMessageId)
+      : null
   } finally {
     releaseTurnLease?.()
     binding.dispose()
@@ -956,6 +1047,8 @@ interface GroupTurnPollContext {
   liveRuntime: string
   runtimeIds: Set<string>
   before: number
+  /** Stable room-log entry represented by this hidden group prompt. */
+  targetMessageId?: null | string
   /** The retained failed turn (`session.resume.inflight`) already on the
    *  session BEFORE this turn's submit, serialized; a retained error that
    *  still matches it is an older turn's tombstone, not this turn's death. */
@@ -985,7 +1078,7 @@ export function strandedMarkerIsLive(marker: unknown): boolean {
 function markGroupTurnInFlight(
   group: string,
   member: GroupMember,
-  marker: { before: number; thread: string; turn: string }
+  marker: { before: number; targetMessageId?: string; thread: string; turn: string }
 ) {
   updateGroupChat(group, (r: GroupChatRoom) => {
     r.stranded = {
@@ -1088,6 +1181,7 @@ async function pollGroupMemberTurn(context: GroupTurnPollContext): Promise<null 
     const died = failedThisTurn || (failure !== null && messages.length > before)
 
     if ((messages.length > before || died) && done) {
+      const reacted = syncGroupTurnAgentReaction(context.group, member, context.targetMessageId, messages, before)
       const pick = messages.length > before && !failedThisTurn ? pickGroupTurnReply(messages, before) : null
 
       if (typeof pick === 'string') {
@@ -1116,7 +1210,10 @@ async function pollGroupMemberTurn(context: GroupTurnPollContext): Promise<null 
         thread
       })
 
-      return null
+      // The reaction tool can be the whole reply and leave no assistant row.
+      // Treat that completed action as an explicit pass so the caller clears
+      // the in-flight marker instead of harvesting it forever.
+      return reacted ? '(pass)' : null
     }
 
     // Still visibly working — or waiting on the user's answer to a clarify:
@@ -1184,7 +1281,8 @@ async function runGroupChatMemberTurnLeased(
   member: GroupMember,
   prompt: string,
   thread: string,
-  images?: Attachment[]
+  images?: Attachment[],
+  targetMessageId?: null | string
 ): Promise<null | string> {
   const binding = followGroupChat(group, name => {
     group = name
@@ -1242,6 +1340,7 @@ async function runGroupChatMemberTurnLeased(
     liveGroupTurns.add(turn)
     markGroupTurnInFlight(group, member, {
       before,
+      ...(targetMessageId ? { targetMessageId } : {}),
       thread,
       turn
     })
@@ -1258,6 +1357,7 @@ async function runGroupChatMemberTurnLeased(
         liveRuntime,
         runtimeIds,
         before,
+        targetMessageId,
         leftover,
         binding,
         turn
@@ -1297,6 +1397,7 @@ export async function harvestStrandedGroupReply(group: string, member: GroupMemb
     // Markers were a bare number before threads; normalize both shapes.
     const strandedBefore = typeof marker === 'number' ? marker : marker?.before
     const strandedThread = (typeof marker === 'object' && marker?.thread) || 'legacy'
+    const strandedTargetMessageId = typeof marker === 'object' ? marker?.targetMessageId : undefined
 
     if (typeof strandedBefore !== 'number' || strandedMarkerIsLive(marker)) {
       return // nothing stranded, or a poll in this process still owns the turn
@@ -1316,7 +1417,8 @@ export async function harvestStrandedGroupReply(group: string, member: GroupMemb
         'session.resume',
         {
           session_id: stored || `Group: ${room.roomId || group} · ${strandedThread}`,
-          profile: member.name
+          profile: member.name,
+          source: 'desktop'
         },
         GROUP_SESSION_BACKGROUND_RESUME_OPTIONS
       )
@@ -1362,6 +1464,7 @@ export async function harvestStrandedGroupReply(group: string, member: GroupMemb
       return r
     })
     const messages = Array.isArray(state?.messages) ? state.messages : []
+    syncGroupTurnAgentReaction(group, member, strandedTargetMessageId, messages, strandedBefore)
     // A transcript that never grew is not proof of nothing: a turn that dies
     // before its prompt is committed leaves only the retained error behind.
     // The retained error is the stranded turn's own unless a later turn ran

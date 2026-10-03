@@ -7,7 +7,7 @@ import { EditProfileDialog } from './edit-profile-dialog'
 import { disbandGroupChat, openGroupChat } from './group-chat-view'
 import type { useBots } from './i18n'
 import { deleteBot } from './profile-ops'
-import type { GroupMember, RosterRow } from './types'
+import type { GroupMember, GroupRoomKind, RosterRow } from './types'
 import { createBotSection, moveGroupChatsToSection, renameBotSection, type SectionDialogState } from './user-sections'
 import { SectionNameDialog } from './user-sections-ui'
 
@@ -16,8 +16,8 @@ interface renderRosterDialogsProps {
   t: ReturnType<typeof useI18n>['t']
   createOpen: boolean
   setCreateOpen: (value: boolean) => void
-  groupCreateOpen: boolean
-  setGroupCreateOpen: (value: boolean) => void
+  roomCreateKind: GroupRoomKind | null
+  setRoomCreateKind: (value: GroupRoomKind | null) => void
   editing: RosterRow | null
   setEditing: (value: RosterRow | null) => void
   deleting: (RosterRow & { path?: string }) | null
@@ -38,8 +38,8 @@ export function renderRosterDialogs({
   t,
   createOpen,
   setCreateOpen,
-  groupCreateOpen,
-  setGroupCreateOpen,
+  roomCreateKind,
+  setRoomCreateKind,
   editing,
   setEditing,
   deleting,
@@ -66,9 +66,10 @@ export function renderRosterDialogs({
         roster={activeSourceRoster}
       />
       <CreateGroupChatDialog
-        onClose={() => setGroupCreateOpen(false)}
+        kind={roomCreateKind || 'group-dm'}
+        onClose={() => setRoomCreateKind(null)}
         onCreated={groupName => openGroupChat(groupName)}
-        open={groupCreateOpen} // Full multi-source roster: group chats can seat bots from other
+        open={Boolean(roomCreateKind)} // Full multi-source roster: group chats can seat bots from other
         // registered connections — their turns route to their own machines.
         roster={roster}
       />

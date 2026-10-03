@@ -1470,7 +1470,24 @@ function enforceDockedPanes(
 ): LayoutNode {
   let next = tree
 
-  for (const pane of registry.getArea('panes')) {
+  // Position an anchor before panes that dock to it. Contextual panes can
+  // register before their dynamic anchor; otherwise moving the anchor's
+  // edge split after a child joins its tab group strands that child behind.
+  const panes = registry.getArea('panes')
+
+  const depthOf = (id: string, seen = new Set<string>()): number => {
+    const anchorId = dataOf(id)?.dock?.pane
+
+    if (!anchorId || seen.has(anchorId)) {
+      return 0
+    }
+
+    seen.add(id)
+
+    return 1 + depthOf(anchorId, seen)
+  }
+
+  for (const pane of panes.toSorted((left, right) => depthOf(left.id) - depthOf(right.id))) {
     const dock = dataOf(pane.id)?.dock
 
     if (!dock?.enforce || !allPaneIds(next).includes(pane.id)) {
@@ -1481,14 +1498,16 @@ function enforceDockedPanes(
       continue
     }
 
-    enforcedDocksThisBoot.add(pane.id)
-
     const from = findGroupOfPane(next, pane.id)
     const anchor = findGroupOfPane(next, dock.pane)
 
     if (!from || !anchor) {
       continue
     }
+
+    // A contextual pane can register before its dynamically contributed
+    // anchor. Keep its first enforcement available until that anchor exists.
+    enforcedDocksThisBoot.add(pane.id)
 
     if (dock.pos === 'center' && from.id === anchor.id) {
       // Already stacked with its anchor, and nothing to repair: the trees that
@@ -1508,6 +1527,14 @@ function enforceDockedPanes(
 
       if (moved !== next) {
         next = moved
+
+        // If a late anchor was split away from its contextual tabs, those
+        // tabs need one more chance to follow it during this adoption pass.
+        for (const child of panes) {
+          if (dataOf(child.id)?.dock?.pane === pane.id) {
+            enforcedDocksThisBoot.delete(child.id)
+          }
+        }
       }
 
       continue
@@ -1601,6 +1628,10 @@ export function adoptContributedPanes(): void {
         ) ?? next
     }
   }
+
+  // A dock target may have been adopted in the loop above. Revisit panes
+  // that were waiting for it during the first pass, in this same mutation.
+  next = enforceDockedPanes(next, dataOf)
 
   if (next !== tree) {
     commit(next)

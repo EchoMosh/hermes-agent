@@ -126,11 +126,12 @@ function sessionStatus(feed: ComputerFeed) {
 }
 
 export function computerIsActive(feed: ComputerFeed | null, liveScreen: boolean): boolean {
+  const recent = (startedAt: number) => Boolean(feed && feed.now - startedAt < 15 * 60)
+
   return (
     liveScreen ||
-    feed?.session.status === 'running' ||
-    Boolean(feed?.steps.some(step => step.status === 'running')) ||
-    Boolean(feed?.helpers.some(helper => helper.status === 'running'))
+    Boolean(feed?.steps.some(step => step.status === 'running' && recent(step.ts))) ||
+    Boolean(feed?.helpers.some(helper => helper.status === 'running' && recent(helper.started_at)))
   )
 }
 
@@ -511,7 +512,7 @@ export function MernaComputerPane({ bot }: { bot: RosterRow }) {
 
   // Historic tool steps belong to the chat record. The upper computer only
   // occupies space while the selected teammate is actually working.
-  if (!loading && !error && !computerIsActive(feed, liveScreen)) {
+  if ((error && !liveScreen) || !computerIsActive(feed, liveScreen)) {
     return null
   }
 

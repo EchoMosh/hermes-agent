@@ -85,11 +85,14 @@ describe('Computer work timeline', () => {
     $screenState.set({})
   })
 
-  it('keeps historic steps out of the computer area when the teammate is idle', () => {
+  it('shows the computer for a live screen or active tool, not an idle history', () => {
     const idle = { ...feed, session: { ...feed.session, status: 'idle' as const } }
+    const runningStep = { ...feed, steps: [{ ...feed.steps[0], status: 'running' as const }] }
 
     expect(computerIsActive(idle, false)).toBe(false)
-    expect(computerIsActive(feed, false)).toBe(true)
+    expect(computerIsActive(feed, false)).toBe(false)
+    expect(computerIsActive(runningStep, false)).toBe(true)
+    expect(computerIsActive({ ...runningStep, now: 3600 }, false)).toBe(false)
     expect(computerIsActive(idle, true)).toBe(true)
   })
 

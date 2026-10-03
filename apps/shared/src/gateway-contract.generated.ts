@@ -3009,6 +3009,7 @@ export interface SessionCreateParams {
   provider?: string | null
   reasoning_effort?: string | null
   fast?: boolean | null
+  max_tokens?: number | null
   close_on_disconnect?: boolean
   hidden?: boolean
   room_plumbing?: boolean
@@ -3085,6 +3086,7 @@ export interface SessionResumeParams {
   omit_messages?: boolean
   eager_build?: boolean
   close_on_disconnect?: boolean
+  max_tokens?: number | null
   inline_images?: boolean
 }
 export interface SessionResumeResult {

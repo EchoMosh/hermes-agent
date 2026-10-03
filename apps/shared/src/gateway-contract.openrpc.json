@@ -30179,6 +30179,19 @@
             "default": null,
             "title": "Fast"
           },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Tokens"
+          },
           "close_on_disconnect": {
             "default": false,
             "title": "Close On Disconnect",
@@ -31605,6 +31618,19 @@
             "default": false,
             "title": "Close On Disconnect",
             "type": "boolean"
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Tokens"
           },
           "inline_images": {
             "default": true,

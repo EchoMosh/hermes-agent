@@ -125,6 +125,15 @@ function sessionStatus(feed: ComputerFeed) {
   return 'Waiting'
 }
 
+export function computerIsActive(feed: ComputerFeed | null, liveScreen: boolean): boolean {
+  return (
+    liveScreen ||
+    feed?.session.status === 'running' ||
+    Boolean(feed?.steps.some(step => step.status === 'running')) ||
+    Boolean(feed?.helpers.some(helper => helper.status === 'running'))
+  )
+}
+
 function LiveScreenFrame({ bot }: { bot: RosterRow }) {
   const allScreens = useValue($screenState)
   const screen = screenStateFor(allScreens, bot)
@@ -500,16 +509,9 @@ export function MernaComputerPane({ bot }: { bot: RosterRow }) {
     return null
   }
 
-  // An idle teammate has no computer taking up the top of the work area.
-  // Their past attention items remain available in Activity below.
-  if (
-    !loading &&
-    !liveScreen &&
-    feed?.session.status !== 'running' &&
-    !feed?.steps.length &&
-    !feed?.plan &&
-    !feed?.helpers.length
-  ) {
+  // Historic tool steps belong to the chat record. The upper computer only
+  // occupies space while the selected teammate is actually working.
+  if (!loading && !error && !computerIsActive(feed, liveScreen)) {
     return null
   }
 

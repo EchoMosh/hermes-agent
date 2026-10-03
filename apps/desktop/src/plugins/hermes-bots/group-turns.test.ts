@@ -88,7 +88,7 @@ describe('session resolution', () => {
     expect(room.gateway.sessions.get(String(fresh.stored))?.title).toBe('Group: r-abc · t1')
   })
 
-  it('creates member sessions with the room_plumbing + follow_profile_config contracts', async () => {
+  it('creates member sessions with profile-following contracts and a bounded output cap', async () => {
     // The PR #97008 contracts: room member sessions always rebuild from the
     // member profile's CURRENT config on resume, never a stale stored
     // model/provider pin. Dropping either param silently regresses rooms to
@@ -104,8 +104,10 @@ describe('session resolution', () => {
 
     expect(room.gateway.sessions.get(String(handle.stored))?.contracts).toEqual({
       follow_profile_config: true,
+      max_tokens: 4096,
       room_plumbing: true
     })
+    expect(room.gateway.rpcFor('session.resume').every(call => call.params.max_tokens === 4096)).toBe(true)
   })
 
   it('mints fresh member sessions when a same-name group is recreated after disband', async () => {

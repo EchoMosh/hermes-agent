@@ -58,7 +58,11 @@ export function GroupMessageReactions({ group, message }: { group: string; messa
   }
 
   return (
-    <div className="mt-1 flex min-h-5 items-center gap-1" data-slot="group-chat-message-reactions">
+    <div
+      className="mt-1 flex min-h-5 items-center gap-1"
+      data-empty={counts.length === 0 ? 'true' : undefined}
+      data-slot="group-chat-message-reactions"
+    >
       {counts.map(reaction => (
         <Button
           aria-label={`${reaction.emoji} reaction, ${reaction.count}`}
@@ -83,7 +87,6 @@ export function GroupMessageReactions({ group, message }: { group: string; messa
                 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus:pointer-events-auto focus:opacity-100'
             )}
             size="icon"
-            title="Add reaction"
             variant="ghost"
           >
             <Codicon name="smiley" />

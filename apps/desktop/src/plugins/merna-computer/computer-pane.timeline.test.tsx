@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { $screenState } from '../hermes-bots/screen-state'
 import type { RosterRow } from '../hermes-bots/types'
 
-import { ComputerWorkSurface } from './computer-pane'
+import { computerIsActive, ComputerWorkSurface } from './computer-pane'
 import type { ComputerFeed, ComputerStep } from './types'
 
 vi.mock('../hermes-bots/screen-pane', () => ({
@@ -83,6 +83,14 @@ describe('Computer work timeline', () => {
 
   afterEach(() => {
     $screenState.set({})
+  })
+
+  it('keeps historic steps out of the computer area when the teammate is idle', () => {
+    const idle = { ...feed, session: { ...feed.session, status: 'idle' as const } }
+
+    expect(computerIsActive(idle, false)).toBe(false)
+    expect(computerIsActive(feed, false)).toBe(true)
+    expect(computerIsActive(idle, true)).toBe(true)
   })
 
   it('selects earlier step details while the upper screen remains the current live display', () => {

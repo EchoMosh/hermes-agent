@@ -176,6 +176,7 @@ export async function runGroupRoundMember(
   const anchorId = room.log.at(-1)?.id ?? null
   let reply: null | string = null
   let accepted = false
+  let failureReason: null | string = null
 
   try {
     reply = await runVisibleMemberTurn(context, member, prompt, deltaImages, reactionTargetId)
@@ -206,7 +207,8 @@ export async function runGroupRoundMember(
     })
     noteBotAttention(groupMemberKey(member), reason || error?.message || error)
     context.failedMembers?.add(groupMemberKey(member))
-    reply = null // a failed turn is a pass, never a room error
+    failureReason = reason || 'The turn failed.'
+    reply = null
   }
 
   // #93127: the turn may have finished AFTER a newer user send bumped
@@ -280,6 +282,12 @@ export async function runGroupRoundMember(
 
   if (reply !== null && spoke) {
     appendGroupChatEntry(context.group, groupMemberAuthor(member), reply, thread)
+  } else if (failureReason) {
+    // The activity feed and roster badge are easy to miss. Persist a concise,
+    // redacted failure in the room transcript so the user can see why this
+    // member stayed silent. It remains a failed turn (`spoke === false`), so
+    // it cannot extend the round or masquerade as a model answer.
+    appendGroupChatEntry(context.group, groupMemberAuthor(member), `⚠️ Couldn’t reply: ${failureReason}`, thread)
   }
 
   // A member's own entries — its reply, and the rows group-external-writes.ts

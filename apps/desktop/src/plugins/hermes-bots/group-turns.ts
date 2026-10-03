@@ -31,6 +31,11 @@ import { GROUP_PROMPT_HEADER_PREFIX } from './group-round-prompt'
 import { botConnectionRoute, requestForBot } from './routing'
 import type { Attachment, GroupMember, GroupPrompt, GroupPromptQuestion, ProfileRoute } from './types'
 
+/** Group turns are short conversational contributions. Bounding their output
+ *  keeps a profile's large model default from asking providers to reserve an
+ *  unaffordable 64k completion, without changing ordinary 1:1 sessions. */
+export const GROUP_TURN_MAX_TOKENS = 4096
+
 /** "(pass)" (loosely: pass / (pass) / pass.) or empty = the member stayed silent. */
 export function isGroupPassText(text: unknown) {
   const trimmed = String(text || '').trim()
@@ -68,9 +73,7 @@ function groupTurnDisplayMetadata(value: unknown): null | Record<string, unknown
     try {
       const parsed = JSON.parse(value)
 
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : null
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
     } catch {
       return null
     }
@@ -82,10 +85,7 @@ function groupTurnDisplayMetadata(value: unknown): null | Record<string, unknown
 /** The member's `react_to_message` tool persists its tapback on the hidden
  * group prompt row. Resolve only this turn's header-prefixed user row; its
  * backend row id never becomes room identity. */
-function groupTurnAgentReaction(
-  messages: GroupTurnTranscriptMessage[],
-  before: number
-): GroupTurnAgentReaction | null {
+function groupTurnAgentReaction(messages: GroupTurnTranscriptMessage[], before: number): GroupTurnAgentReaction | null {
   const prompt = messages.find(
     (message, index) =>
       index >= before &&
@@ -285,7 +285,7 @@ function resumeGroupSession(member: GroupMember, params: Record<string, unknown>
   return requestForBot<GroupSessionSnapshot>(
     member,
     'session.resume',
-    { ...params, source: 'desktop' },
+    { ...params, source: 'desktop', max_tokens: GROUP_TURN_MAX_TOKENS },
     GROUP_SESSION_RESUME_OPTIONS
   )
 }
@@ -483,7 +483,8 @@ export async function ensureGroupChatSession(
         // stored model/provider pin. Older gateways ignore the unknown params;
         // the server's hidden + "Group: " title fallback then covers legacy.
         room_plumbing: true,
-        follow_profile_config: true
+        follow_profile_config: true,
+        max_tokens: GROUP_TURN_MAX_TOKENS
       },
       GROUP_SESSION_CREATE_OPTIONS
     )) as { session_id?: string; stored_session_id?: string }

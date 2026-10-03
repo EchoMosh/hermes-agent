@@ -10,6 +10,8 @@
  * touch stay below, in `group-panes.ts`.
  */
 
+import './group-chat-view.css'
+
 import * as sdk from '@hermes/plugin-sdk'
 import {
   atom,
@@ -1266,9 +1268,11 @@ export function GroupChatWorkspace({ group, members, onBack, visible = true }: G
     return (
       <div
         className={cn(
-          'group flex items-start gap-2',
+          'group relative flex items-start gap-2',
           isUser ? 'rounded-md bg-(--chrome-action-hover) px-2 py-1.5' : 'px-2 py-1'
         )}
+        data-author-kind={entry.from.kind}
+        data-slot="group-chat-entry"
         key={entryKey}
       >
         {appearance ? (
@@ -1432,7 +1436,7 @@ export function GroupChatWorkspace({ group, members, onBack, visible = true }: G
 
   return (
     <div
-      className="relative flex h-full flex-col"
+      className="merna-group-chat relative flex h-full flex-col"
       data-preview-annotate-composer-key={composerKey}
       data-preview-annotate-destination="group"
       data-preview-annotate-group={group}

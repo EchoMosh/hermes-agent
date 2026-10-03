@@ -89,6 +89,10 @@ describe('routing', () => {
       [{ at: 1, from: { kind: 'user', name: 'You' }, text }] as GroupMessage[]
 
     expect(rounds.resolveGroupResponders(user('@builder take this one'), MEMBERS).map(m => m.name)).toEqual(['builder'])
+    expect(rounds.resolveGroupResponders(user('builder take this one'), MEMBERS).map(m => m.name)).toEqual(['builder'])
+    expect(rounds.resolveGroupResponders(user('Hey builder, take this one'), MEMBERS).map(m => m.name)).toEqual([
+      'builder'
+    ])
     expect(rounds.resolveGroupResponders(user('hello team'), MEMBERS)).toHaveLength(3)
     expect(rounds.resolveGroupResponders(user('@everyone standup'), MEMBERS)).toHaveLength(3)
   })
@@ -608,7 +612,7 @@ describe('round lifecycle', () => {
     expect(room.chat.$groupChats.get().Failure.running).toBe(false)
   })
 
-  it('treats a failed member turn as a pass, not a room error', async () => {
+  it('shows a failed member turn in the room without counting it as a reply', async () => {
     const room = await loadRoom({
       turn: ({ profile }) => {
         if (profile === 'builder') {
@@ -622,8 +626,36 @@ describe('round lifecycle', () => {
     room.rounds.sendToGroupChat('Flaky', MEMBERS, 'anyone around?')
     await settle(room, 'Flaky')
 
-    // Just the user message; no error entries.
-    expect(log(room, 'Flaky')).toHaveLength(1)
+    const entries = log(room, 'Flaky')
+
+    expect(entries).toHaveLength(2)
+    expect(entries[1]).toMatchObject({
+      from: { kind: 'member', name: 'builder' },
+      text: '⚠️ Couldn’t reply: gateway hiccup'
+    })
+    // A visible failure remains a failed/pass turn: it does not re-drive the
+    // room as model speech or acknowledge the unseen user delta.
+    expect(room.gateway.calls.filter(call => call.profile === 'builder')).toHaveLength(1)
+    expect(Object.keys(room.chat.$groupChats.get().Flaky.watermarks).some(key => key.endsWith('::builder'))).toBe(false)
+  })
+
+  it('shows the retained OpenRouter quota failure that ended the live group turn', async () => {
+    const room = await loadRoom({
+      retainedErrorAfterSubmit:
+        'OpenRouter API error 402: This request requires more credits because max_tokens was 65536.',
+      turn: () => []
+    })
+
+    room.rounds.sendToGroupChat('Quota', [{ name: 'research', title: '' }], 'talk to each other')
+    await settle(room, 'Quota')
+
+    expect(log(room, 'Quota').map(entry => entry.text)).toEqual([
+      'talk to each other',
+      '⚠️ Couldn’t reply: OpenRouter API error 402: This request requires more credits because max_tokens was 65536.'
+    ])
+    expect(room.activity.currentGroupActivity('Quota')).toContainEqual(
+      expect.objectContaining({ kind: 'failed', member: 'research' })
+    )
   })
 
   it('badges needs-you when a member addresses @user, and clears it on the next user send', async () => {

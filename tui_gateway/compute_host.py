@@ -355,6 +355,7 @@ class ComputeHost:
                 sid, key, session_id=key, model_override=frame.get("model_override"),
                 reasoning_config_override=frame.get("reasoning_config_override"),
                 service_tier_override=frame.get("service_tier_override"),
+                max_tokens_override=frame.get("max_tokens_override"),
                 platform_override=frame.get("source"),
                 cwd_override=str(frame.get("cwd") or "") or None,
                 context_cwd_is_launch_artifact=bool(
@@ -405,6 +406,8 @@ class ComputeHost:
         session["profile_home"] = profile_home or session.get("profile_home")
         if frame.get("model_override") is not None:
             session["model_override"] = frame.get("model_override")
+        if frame.get("max_tokens_override") is not None:
+            session["max_tokens_override"] = frame.get("max_tokens_override")
         # See _ensure_server_session's existing-session branch — a queued model
         # switch crosses the process boundary and applies at this child's turn start.
         if frame.get("pending_model_switch"):

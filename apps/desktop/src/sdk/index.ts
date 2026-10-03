@@ -2022,6 +2022,8 @@ export { cn } from '@/lib/utils'
  *  the user opens the session, `forgetSessionUnread` drops it when the session
  *  is gone. Pass the owning profile — a hidden session has no row to read it
  *  from, and the persisted half is bucketed per profile. */
+/** The same resolved dot state used by session tiles and Bot Mode rows. */
+export { $sessionDotStateById } from '@/store/session-dot-state'
 export { ackStoredSessionId, forgetSessionUnread, markSessionUnreadFinished } from '@/store/session-unread'
 /** `sidebarNav.prefs`: hide / re-order the sidebar's nav rows by CONTRIBUTING a
  *  preference (union of hides, `capabilities` never hidden; the first order

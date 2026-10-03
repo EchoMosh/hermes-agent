@@ -296,6 +296,7 @@ export default {
                     room.externalCursors && typeof room.externalCursors === 'object' ? room.externalCursors : {},
                   members: Array.isArray(room.members) ? room.members : [],
                   roomId: typeof room.roomId === 'string' && room.roomId ? room.roomId : null,
+                  kind: room.kind === 'channel' ? 'channel' : undefined,
                   image: typeof room.image === 'string' && room.image ? room.image : null,
                   rosterOrder: Number.isFinite(room.rosterOrder) ? room.rosterOrder : undefined,
                   pinned: Boolean(room.pinned),

@@ -953,6 +953,71 @@ export interface VerificationEvidenceRow {
   output_summary?: string | null
   [key: string]: unknown
 }
+/** ``profile`` selects the served home; ``session_id`` is its canonical Bot Chat tip. */
+export interface ComputerFeedParams {
+  session_id: string
+  profile?: string | null
+  after?: number
+  limit?: number
+}
+export interface ComputerFeedResult {
+  session: ComputerSession
+  cursor?: number
+  steps?: ComputerStep[]
+  plan?: ComputerPlan | null
+  helpers?: ComputerHelper[]
+  say?: string | null
+  now: number
+}
+export interface ComputerSession {
+  id: string
+  title?: string
+  model?: string
+  started_at?: number
+  last_activity_at?: number | null
+  ended_at?: number | null
+  status?: string
+  tool_calls?: number
+}
+export interface ComputerStep {
+  id: string
+  seq: number
+  ts?: number
+  done_ts?: number | null
+  tool: string
+  kind: ComputerStepKind
+  status: ComputerStepStatus
+  title: string
+  preview?: string | null
+  error?: string | null
+}
+export type ComputerStepKind = 'browser' | 'terminal' | 'code' | 'search' | 'plan' | 'delegate' | 'memory' | 'ask' | 'other'
+export type ComputerStepStatus = 'running' | 'ok' | 'error'
+export interface ComputerPlan {
+  id: string
+  goal?: string
+  status?: string
+  steps?: ComputerPlanStep[]
+  done?: number
+  total?: number
+  current?: string | null
+}
+export interface ComputerPlanStep {
+  id: string
+  title: string
+  status?: string
+}
+export interface ComputerHelper {
+  id: string
+  title?: string
+  goal?: string | null
+  status?: string
+  started_at?: number
+  ended_at?: number | null
+  last_activity_at?: number | null
+  tool_calls?: number
+  last_step?: string | null
+}
 export interface ConnectionOperationParams {
   profile?: string | null
   owner: SessionOwner | AccountOwner
@@ -4929,6 +4994,8 @@ export interface RpcMethods {
   'complete.path': { params: CompletePathParams; result: CompletionItemsResult }
   /** Ranked slash-command / skill completions for a ``/`` token. */
   'complete.slash': { params: CompleteSlashParams; result: CompleteSlashResult }
+  /** Bounded, redacted tool timeline for one profile's canonical Bot Chat. */
+  'computer.feed': { params: ComputerFeedParams; result: ComputerFeedResult }
   /** Read one normalised config value (or the whole effective config) the way the UIs render it. */
   'config.get': { params: ConfigGetParams; result: ConfigGetResult }
   /** Change one config key (persisted or session-scoped) and read back the normalised value. */
@@ -5407,6 +5474,7 @@ export const RPC_METHODS = [
   'commands.catalog',
   'complete.path',
   'complete.slash',
+  'computer.feed',
   'config.get',
   'config.set',
   'config.show',

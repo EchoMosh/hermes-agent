@@ -1230,6 +1230,60 @@ describe('in-flight marker', () => {
     expect(log(room, 'Fleet')[0].text).toMatch(/Finished on the mini/)
     expect(room.chat.$groupChats.get().Fleet.stranded?.['mini::helper']).toBeUndefined()
   })
+
+  it('harvests a pass-only member reaction onto its stable room target after restart', async () => {
+    const room = await loadRoom()
+    const { groupSessionKey } = await import('./group-membership')
+
+    room.chat.updateGroupChat('Fleet', current => {
+      current.log = [
+        {
+          at: 1,
+          from: { kind: 'user', name: 'You' },
+          id: 'room-message-1',
+          text: 'Nice work on the release.',
+          thread: 't1'
+        }
+      ]
+      current.sessions = { [groupSessionKey('t1', ROUTED_MEMBER)]: 'sid-mini-helper' }
+      current.stranded = {
+        'mini::helper': {
+          before: 0,
+          targetMessageId: 'room-message-1',
+          thread: 't1',
+          turn: 'rt-gone:abandoned'
+        }
+      }
+
+      return current
+    })
+    room.gateway.sessions.set('sid-mini-helper', {
+      messages: [
+        {
+          content: roomPrompt('Fleet'),
+          display_metadata: { reactions: [{ at: 1_700_000_001, author: 'agent', emoji: '👍' }] },
+          role: 'user'
+        },
+        { content: '(pass)', role: 'assistant' }
+      ],
+      profile: 'helper',
+      runtime: 'rt-mini-helper',
+      stored: 'sid-mini-helper',
+      title: 'Group: Fleet · t1'
+    })
+
+    await room.turns.harvestStrandedGroupReply('Fleet', ROUTED_MEMBER)
+
+    expect(log(room, 'Fleet')).toHaveLength(1)
+    expect(log(room, 'Fleet')[0].reactions).toEqual([
+      {
+        at: 1_700_000_001_000,
+        emoji: '👍',
+        from: { kind: 'member', name: 'helper', source: 'mini' }
+      }
+    ])
+    expect(room.chat.$groupChats.get().Fleet.stranded?.['mini::helper']).toBeUndefined()
+  })
 })
 
 // A turn that outlives its deadline leaves a "stranded" marker. The member is

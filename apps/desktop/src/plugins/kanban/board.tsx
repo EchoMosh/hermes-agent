@@ -85,6 +85,7 @@ import { BoardSwitcher } from './board-switcher'
 import { TaskDrawer } from './drawer'
 import { EMPTY_OVERRIDE, ModelOverrideField, overrideCreateFields, type TaskModelOverride } from './model-override'
 import { OrchestrationPanel } from './orchestration'
+import { useKanbanTaskDeepLink } from './task-deep-link'
 import { columnMeta, type KanbanBoard, type KanbanTask, type TaskEstimate } from './types'
 import {
   $newTaskLane,
@@ -1113,6 +1114,13 @@ export function KanbanBoardPage() {
   const [tenant, setTenant] = useState('')
   const [assignee, setAssignee] = useState('')
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+
+  useKanbanTaskDeepLink({
+    board: board ?? null,
+    boardSlug: slug,
+    onOpenTask: setOpenId,
+    onSelectBoard: $boardSlug.set
+  })
 
   // A new-task request raised from outside the page (⌘⌥N, the palette row).
   // The command navigates here and parks the lane; the page picks it up on

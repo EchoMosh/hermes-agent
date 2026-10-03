@@ -36,7 +36,8 @@ vi.mock('@hermes/plugin-sdk', async () => {
 vi.mock('./group-chat-parts', () => ({
   GroupClarifyCard: () => null,
   GroupImageControls: () => null,
-  GroupMentionInput: (props: { 'aria-label'?: string }) => <textarea aria-label={props['aria-label']} />
+  GroupMentionInput: (props: { 'aria-label'?: string }) => <textarea aria-label={props['aria-label']} />,
+  GroupMessageReactions: () => null
 }))
 
 const MEMBERS: GroupMember[] = [

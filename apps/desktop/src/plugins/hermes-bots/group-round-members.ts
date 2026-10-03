@@ -131,8 +131,9 @@ function prepareGroupRoundMember(context: GroupRoundMemberContext, member: Group
   // into the member's session so the model sees the pixels, not just
   // the transcript's [attached image: …] marker.
   const deltaImages = visibleDelta.flatMap((e: GroupMessage) => (Array.isArray(e.images) ? e.images : []))
+  const reactionTargetId = visibleDelta.at(-1)?.id ?? null
 
-  return { room, memberKey, markKey, prompt, deltaImages, heldIds }
+  return { room, memberKey, markKey, prompt, deltaImages, heldIds, reactionTargetId }
 }
 
 /** Each invocation owns its descriptor, so an old completion cannot clear a newer turn. */
@@ -140,13 +141,14 @@ async function runVisibleMemberTurn(
   context: GroupRoundMemberContext,
   member: GroupMember,
   prompt: string,
-  images?: Attachment[]
+  images?: Attachment[],
+  reactionTargetId?: null | string
 ) {
   const turn = { ...member }
   updateGroupChat(context.group, (room: GroupChatRoom) => ({ ...room, turn }), { sync: false })
 
   try {
-    return await runGroupChatMemberTurn(context.group, member, prompt, context.thread, images)
+    return await runGroupChatMemberTurn(context.group, member, prompt, context.thread, images, reactionTargetId)
   } finally {
     if (context.binding.isLive() && $groupChats.get()[context.group]?.turn === turn) {
       updateGroupChat(context.group, (room: GroupChatRoom) => ({ ...room, turn: null }), { sync: false })
@@ -170,13 +172,13 @@ export async function runGroupRoundMember(
     return false
   }
 
-  const { room, memberKey, markKey, prompt, deltaImages, heldIds } = prepared
+  const { room, memberKey, markKey, prompt, deltaImages, heldIds, reactionTargetId } = prepared
   const anchorId = room.log.at(-1)?.id ?? null
   let reply: null | string = null
   let accepted = false
 
   try {
-    reply = await runVisibleMemberTurn(context, member, prompt, deltaImages)
+    reply = await runVisibleMemberTurn(context, member, prompt, deltaImages, reactionTargetId)
     accepted = true
 
     // Needs-attention hook (#93091 item 3): a turn that produced a real

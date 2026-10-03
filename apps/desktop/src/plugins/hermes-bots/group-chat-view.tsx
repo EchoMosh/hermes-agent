@@ -72,7 +72,7 @@ import {
   updateGroupChat
 } from './group-chat'
 import type { GroupChatRoom } from './group-chat'
-import { GroupClarifyCard, GroupImageControls, GroupMentionInput } from './group-chat-parts'
+import { GroupClarifyCard, GroupImageControls, GroupMentionInput, GroupMessageReactions } from './group-chat-parts'
 import type { GroupRoomPrompt } from './group-chat-parts'
 import { GroupMemberPicker } from './group-chat-view-members'
 import { compressGroupMemberHistory } from './group-compress'
@@ -211,6 +211,7 @@ export async function disbandGroupChat(group: string, members: RosterRow[]) {
           sessions: room.sessions || {},
           sessionOwners: room.sessionOwners || {},
           members: Array.isArray(room.members) ? room.members : [],
+          kind: room.kind,
           roomId: typeof room.roomId === 'string' && room.roomId ? room.roomId : null,
           image: room.image || null,
           syncRevision: Math.max(0, Number(room.syncRevision || 0))
@@ -1243,7 +1244,7 @@ export function GroupChatWorkspace({ group, members, onBack, visible = true }: G
           meta
         )
 
-    const entryKey = `${entry.at}:${index}`
+    const entryKey = entry.id || `${entry.at}:${index}`
     const revealed = !isUser && revealedSpeaker === entryKey
 
     // Clicked: append the gateway name so same-named agents on
@@ -1360,6 +1361,7 @@ export function GroupChatWorkspace({ group, members, onBack, visible = true }: G
               )}
             </div>
           ) : null}
+          <GroupMessageReactions group={group} message={entry} />
         </div>
       </div>
     )

@@ -281,4 +281,84 @@ describe('enforced dock (stacked Bots pane → sessions-zone tab, every boot)', 
 
     expect(tree.$layoutTree.get()).toEqual(dockedRoutinesTree)
   })
+
+  it('docks contextual panes when their dynamic anchor registers after them', async () => {
+    const lateAnchorTree = {
+      type: 'split',
+      id: 'root',
+      orientation: 'row',
+      weights: [1, 3, 1],
+      children: [
+        { type: 'group', id: 'g-sessions', panes: ['sessions', 'hermes-bots:pane'], active: 'hermes-bots:pane' },
+        { type: 'group', id: 'g-main', panes: ['workspace'], active: 'workspace' },
+        { type: 'group', id: 'g-computer', panes: ['merna-computer:pane'], active: 'merna-computer:pane' }
+      ]
+    }
+
+    const { model, registry, tree } = await setupTree(lateAnchorTree)
+
+    registry.register({
+      id: 'merna-computer:pane',
+      area: 'panes',
+      title: 'Computer',
+      data: { placement: 'main', dock: { pane: 'hermes-bots:routines', pos: 'center', enforce: true } },
+      render: () => null
+    })
+    tree.watchContributedPanes()
+
+    expect(model.findGroupOfPane(tree.$layoutTree.get()!, 'merna-computer:pane')!.panes).toEqual([
+      'merna-computer:pane'
+    ])
+
+    registry.register({
+      id: 'hermes-bots:routines',
+      area: 'panes',
+      title: 'Scheduled jobs',
+      data: { placement: 'main', dock: { pane: 'workspace', pos: 'right', enforce: true } },
+      render: () => null
+    })
+
+    expect(model.findGroupOfPane(tree.$layoutTree.get()!, 'merna-computer:pane')!.panes).toEqual([
+      'hermes-bots:routines',
+      'merna-computer:pane'
+    ])
+  })
+
+  it('keeps contextual tabs with a late anchor already persisted in the tree', async () => {
+    const persistedTree = {
+      type: 'split',
+      id: 'root',
+      orientation: 'row',
+      weights: [1, 3, 1, 1],
+      children: [
+        { type: 'group', id: 'g-sessions', panes: ['sessions', 'hermes-bots:pane'], active: 'hermes-bots:pane' },
+        { type: 'group', id: 'g-main', panes: ['workspace'], active: 'workspace' },
+        { type: 'group', id: 'g-routines', panes: ['hermes-bots:routines'], active: 'hermes-bots:routines' },
+        { type: 'group', id: 'g-computer', panes: ['merna-computer:pane'], active: 'merna-computer:pane' }
+      ]
+    }
+
+    const { model, registry, tree } = await setupTree(persistedTree)
+
+    registry.register({
+      id: 'merna-computer:pane',
+      area: 'panes',
+      title: 'Computer',
+      data: { placement: 'main', dock: { pane: 'hermes-bots:routines', pos: 'center', enforce: true } },
+      render: () => null
+    })
+    tree.watchContributedPanes()
+    registry.register({
+      id: 'hermes-bots:routines',
+      area: 'panes',
+      title: 'Scheduled jobs',
+      data: { placement: 'main', dock: { pane: 'workspace', pos: 'right', enforce: true } },
+      render: () => null
+    })
+
+    expect(model.findGroupOfPane(tree.$layoutTree.get()!, 'merna-computer:pane')!.panes).toEqual([
+      'hermes-bots:routines',
+      'merna-computer:pane'
+    ])
+  })
 })

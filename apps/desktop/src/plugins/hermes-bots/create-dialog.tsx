@@ -72,7 +72,7 @@ import { deleteBot } from './profile-ops'
 import { botRosterMeta } from './routing'
 import { HubSkillsSection } from './skills-hub'
 import { composeSoul } from './soul'
-import type { BotMeta, ConnectionRow, RosterRow } from './types'
+import type { BotMeta, ConnectionRow, GroupMember, GroupRoomKind, RosterRow } from './types'
 
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
@@ -1132,17 +1132,52 @@ export function GroupDialog({ bot, onClose }: GroupDialogProps) {
 }
 
 interface CreateGroupChatDialogProps {
+  kind?: GroupRoomKind
   onClose: () => void
   onCreated?: (group: string) => void
   open: boolean
   roster: RosterRow[]
 }
 
-/** Discord-style group chat creation: pick 2+ bots via checkboxes (with
- *  search), name the group, create. Assignment appends to each local bot's
- *  group membership list, so the room appears in the roster and syncs
- *  cross-machine via ui_meta without replacing its other groups. */
-export function CreateGroupChatDialog({ open, roster, onClose, onCreated }: CreateGroupChatDialogProps) {
+const GROUP_ROOM_MINIMUMS: Record<GroupRoomKind, 2> = {
+  channel: 2,
+  'group-dm': 2
+}
+
+export function groupRoomMinimumMembers(kind: GroupRoomKind): 2 {
+  return GROUP_ROOM_MINIMUMS[kind]
+}
+
+interface CreatedGroupRoomFields {
+  image: null | string
+  kind: GroupRoomKind
+  members: GroupMember[]
+  roomId: string
+}
+
+export function applyCreatedGroupRoom(room: GroupChatRoom, fields: CreatedGroupRoomFields): GroupChatRoom {
+  room.kind = fields.kind
+  room.members = fields.members
+  room.roomId = fields.roomId
+
+  if (fields.image) {
+    room.image = fields.image
+  }
+
+  return room
+}
+
+/** Channels and group DMs both use the existing persisted group-room engine,
+ *  whose membership contract requires two bots. Assignment appends to
+ *  each bot's membership list, so the room syncs without replacing its other
+ *  rooms. */
+export function CreateGroupChatDialog({
+  kind = 'group-dm',
+  open,
+  roster,
+  onClose,
+  onCreated
+}: CreateGroupChatDialogProps) {
   const { t } = useI18n()
   const b = useBots()
   const allMeta: Record<string, BotMeta> = useValue($botMeta)
@@ -1159,7 +1194,7 @@ export function CreateGroupChatDialog({ open, roster, onClose, onCreated }: Crea
       setName('')
       setImage(null)
     }
-  }, [open])
+  }, [kind, open])
 
   // An outage placeholder preserves one selected owner's identity in the
   // sidebar, but it is not a routable room member. Never offer it here.
@@ -1167,17 +1202,18 @@ export function CreateGroupChatDialog({ open, roster, onClose, onCreated }: Crea
   const selected = selectableRoster.filter(bot => checked[botRosterKey(bot)])
   const visible: RosterRow[] = filterBots(selectableRoster, allMeta, query)
   const atCap = selected.length >= GROUP_CHAT_MAX_MEMBERS
+  const minimumMembers = groupRoomMinimumMembers(kind)
 
   const placeholder = selected.length
     ? selected.map(bot => displayName(bot, botRosterMeta(bot, allMeta))).join(', ')
     : b.group.nameLabel
 
-  const canCreate = selected.length >= 2 && Boolean(name.trim() || selected.length)
+  const canCreate = selected.length >= minimumMembers && Boolean(name.trim() || selected.length)
 
   const create = () => {
     const base = (name.trim() || placeholder).slice(0, 64)
 
-    if (selected.length < 2 || !base) {
+    if (selected.length < minimumMembers || !base) {
       return
     }
 
@@ -1208,19 +1244,12 @@ export function CreateGroupChatDialog({ open, roster, onClose, onCreated }: Crea
     // member becomes remote after a source switch and cannot rely on the new
     // gateway's name-keyed bot metadata to remain seated in this room.
     const roomMembers = durableGroupChatMembers(selected)
-    updateGroupChat(groupName, (room: GroupChatRoom) => {
-      room.members = roomMembers
-      room.roomId = roomId
-
-      if (image) {
-        room.image = image
-      }
-
-      return room
-    })
+    updateGroupChat(groupName, (room: GroupChatRoom) =>
+      applyCreatedGroupRoom(room, { image, kind, members: roomMembers, roomId })
+    )
     host.notify({
       kind: 'info',
-      message: `“${groupName}” created with ${selected.length} bots`
+      message: `“${groupName}” ${kind === 'channel' ? 'channel' : 'group DM'} created with ${selected.length} bots`
     })
     onClose()
     onCreated?.(groupName)
@@ -1237,8 +1266,8 @@ export function CreateGroupChatDialog({ open, roster, onClose, onCreated }: Crea
     >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{b.group.newTitle}</DialogTitle>
-          <DialogDescription>{`Pick 2–${GROUP_CHAT_MAX_MEMBERS} bots. Local memberships sync through each Bot profile; cross-machine members stay scoped to this room.`}</DialogDescription>
+          <DialogTitle>{kind === 'channel' ? 'New channel' : 'New group DM'}</DialogTitle>
+          <DialogDescription>{`Pick ${minimumMembers}–${GROUP_CHAT_MAX_MEMBERS} bots. Local memberships sync through each Bot profile; cross-machine members stay scoped to this room.`}</DialogDescription>
         </DialogHeader>
         {/* TODO(bot-mode-types): this search box never takes focus when the dialog
             opens — SearchField accepts no `autoFocus` prop and forwards no extra
@@ -1347,7 +1376,7 @@ export function CreateGroupChatDialog({ open, roster, onClose, onCreated }: Crea
             }}
           >
             <Input
-              aria-label={b.group.nameLabel}
+              aria-label={kind === 'channel' ? 'Channel name' : b.group.nameLabel}
               maxLength={64}
               onChange={event => setName(event.target.value)}
               placeholder={placeholder}
@@ -1362,7 +1391,7 @@ export function CreateGroupChatDialog({ open, roster, onClose, onCreated }: Crea
           <Button
             disabled={!canCreate}
             onClick={create}
-          >{`Create Group${selected.length ? ` (${selected.length})` : ''}`}</Button>
+          >{`Create ${kind === 'channel' ? 'channel' : 'group DM'}${selected.length ? ` (${selected.length})` : ''}`}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

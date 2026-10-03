@@ -1,7 +1,24 @@
-import { Codicon, host } from '@hermes/plugin-sdk'
+import { Button, Codicon, host, Tip } from '@hermes/plugin-sdk'
 import { useState } from 'react'
 
-const previewOnly = (name: string) => host.notify({ kind: 'info', message: `${name} is a visual preview for now.` })
+import { groupRoomKind } from './group-chat'
+import type { GroupChatRoom } from './group-chat'
+import type { GroupRoomKind } from './types'
+
+export type RosterVibeView = 'activity' | 'dms' | 'home'
+
+interface RosterVibeNavProps {
+  activeRoom: null | string
+  activeView: null | RosterVibeView
+  canCreateChannel: boolean
+  canCreateGroupDm: boolean
+  groupNames: string[]
+  groupRooms: Record<string, GroupChatRoom>
+  onCreateChannel: () => void
+  onCreateGroupDm: () => void
+  onNavigate: (view: RosterVibeView) => void
+  onOpenRoom: (name: string) => void
+}
 
 function RailIcon({ name }: { name: 'home' | 'dm' | 'activity' | 'more' | 'settings' }) {
   const shared = { className: 'merna-rail-icon', 'aria-hidden': true as const, viewBox: '0 0 32 32' }
@@ -71,31 +88,101 @@ function RailIcon({ name }: { name: 'home' | 'dm' | 'activity' | 'more' | 'setti
   )
 }
 
-export function RosterVibeNav() {
+/** Preserve the roster's existing order while separating channels from DMs.
+ *  Missing room records are legacy group DMs; tombstones never navigate. */
+export function rosterRoomNames(names: string[], rooms: Record<string, GroupChatRoom>, kind: GroupRoomKind): string[] {
+  const seen = new Set<string>()
+
+  return (Array.isArray(names) ? names : []).filter(name => {
+    const room = rooms?.[name]
+
+    if (!name || seen.has(name) || room?.tombstone || groupRoomKind(room) !== kind) {
+      return false
+    }
+
+    seen.add(name)
+
+    return true
+  })
+}
+
+interface RoomSectionProps {
+  activeRoom: null | string
+  addLabel: string
+  canCreate: boolean
+  kind: GroupRoomKind
+  label: string
+  names: string[]
+  onCreate: () => void
+  onOpenRoom: (name: string) => void
+}
+
+function RoomSection({ activeRoom, addLabel, canCreate, kind, label, names, onCreate, onOpenRoom }: RoomSectionProps) {
+  return (
+    <section aria-label={label} className="merna-channels">
+      <div className="merna-section-caption">
+        <span>{label}</span>
+        <Tip label={addLabel}>
+          <Button aria-label={addLabel} disabled={!canCreate} onClick={onCreate} size="icon-xs" variant="ghost">
+            <Codicon name="add" />
+          </Button>
+        </Tip>
+      </div>
+      {names.map(name => (
+        <button
+          aria-current={activeRoom === name ? 'page' : undefined}
+          className="merna-channel-row"
+          key={name}
+          onClick={() => onOpenRoom(name)}
+          type="button"
+        >
+          <span aria-hidden="true" className="merna-channel-hash">
+            {kind === 'channel' ? '#' : <Codicon name="organization" />}
+          </span>
+          <span className="min-w-0 truncate">{name}</span>
+        </button>
+      ))}
+    </section>
+  )
+}
+
+export function RosterVibeNav({
+  activeRoom,
+  activeView,
+  canCreateChannel,
+  canCreateGroupDm,
+  groupNames,
+  groupRooms,
+  onCreateChannel,
+  onCreateGroupDm,
+  onNavigate,
+  onOpenRoom
+}: RosterVibeNavProps) {
   const [moreOpen, setMoreOpen] = useState(false)
+  const channelNames = rosterRoomNames(groupNames, groupRooms, 'channel')
+  const groupDmNames = rosterRoomNames(groupNames, groupRooms, 'group-dm')
 
   return (
     <>
       <div className="merna-workspace-header">
-        <button
-          aria-label="DaisyLabs workspace preview"
-          className="merna-workspace-name"
-          onClick={() => previewOnly('Workspaces')}
-          type="button"
-        >
-          DaisyLabs <Codicon name="chevron-down" />
-        </button>
+        <div className="merna-workspace-name">DaisyLabs</div>
       </div>
 
-      <nav aria-label="Workspace preview" className="merna-workspace-nav">
+      <nav aria-label="Workspace" className="merna-workspace-nav">
         {(
           [
-            ['home', 'Home'],
-            ['dm', 'DMs'],
-            ['activity', 'Activity']
+            ['home', 'Home', 'home'],
+            ['dm', 'DMs', 'dms'],
+            ['activity', 'Activity', 'activity']
           ] as const
-        ).map(([icon, label]) => (
-          <button className="merna-workspace-nav-item" key={label} onClick={() => previewOnly(label)} type="button">
+        ).map(([icon, label, view]) => (
+          <button
+            aria-current={activeView === view ? 'page' : undefined}
+            className="merna-workspace-nav-item"
+            key={view}
+            onClick={() => onNavigate(view)}
+            type="button"
+          >
             <RailIcon name={icon} />
             <span>{label}</span>
           </button>
@@ -127,22 +214,26 @@ export function RosterVibeNav() {
         ) : null}
       </nav>
 
-      <div className="merna-channels">
-        <div className="merna-section-caption">Channels</div>
-        {['general', 'product'].map(channel => (
-          <button className="merna-channel-row" key={channel} onClick={() => previewOnly(`#${channel}`)} type="button">
-            <span aria-hidden="true" className="merna-channel-hash">
-              #
-            </span>
-            <span>{channel}</span>
-            {channel === 'product' ? (
-              <span aria-label="Preview unread message" className="merna-channel-badge">
-                1
-              </span>
-            ) : null}
-          </button>
-        ))}
-      </div>
+      <RoomSection
+        activeRoom={activeRoom}
+        addLabel="New channel"
+        canCreate={canCreateChannel}
+        kind="channel"
+        label="Channels"
+        names={channelNames}
+        onCreate={onCreateChannel}
+        onOpenRoom={onOpenRoom}
+      />
+      <RoomSection
+        activeRoom={activeRoom}
+        addLabel="New group DM"
+        canCreate={canCreateGroupDm}
+        kind="group-dm"
+        label="Group DMs"
+        names={groupDmNames}
+        onCreate={onCreateGroupDm}
+        onOpenRoom={onOpenRoom}
+      />
     </>
   )
 }

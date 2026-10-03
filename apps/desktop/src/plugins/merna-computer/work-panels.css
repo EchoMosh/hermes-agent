@@ -1,0 +1,33 @@
+/* The shared Computer + Activity pane uses the conversation palette. */
+[data-active-pane='merna-computer:pane'] {
+  --background: #f8fdfa;
+  --foreground: #15516b;
+  --dt-background: #f8fdfa;
+  --dt-foreground: #15516b;
+  --dt-muted: #eaf6f2;
+  --dt-muted-foreground: #527a8b;
+  --ui-bg-secondary: #eef8f4;
+  --ui-bg-tertiary: #e4f2ec;
+  --ui-text-primary: #15516b;
+  --ui-text-secondary: #527a8b;
+  --ui-text-tertiary: #688894;
+  --ui-text-quaternary: #8da4aa;
+  --ui-stroke-secondary: #d4e7e1;
+  --ui-stroke-tertiary: #e2eee9;
+  --ui-accent: #188f91;
+  --pane-tab-active-bg: #f8fdfa;
+  --pane-tab-strip-bg: #f8fdfa;
+  --pane-tab-active-accent: #288f95;
+  background: #f8fdfa;
+  color: #15516b;
+}
+
+[data-active-pane='merna-computer:pane'] > [data-panel-header],
+[data-active-pane='merna-computer:pane'] > [data-panel-header] [data-zone-tabstrip] {
+  background: #f8fdfa;
+  color: #15516b;
+}
+
+[data-active-pane='merna-computer:pane'] > [data-panel-header] [data-slot='pane-tab'] .pane-tab-content {
+  color: #145d6a;
+}

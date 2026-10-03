@@ -78,6 +78,13 @@
   background: #dcefe8;
 }
 
+.merna-workspace-nav-item[aria-current='page'],
+.merna-channel-row[aria-current='page'] {
+  background: var(--ui-row-active-background);
+  color: #0b6670;
+  font-weight: 600;
+}
+
 .merna-rail-icon {
   width: 1.75rem;
   height: 1.75rem;
@@ -121,6 +128,9 @@
 }
 
 .merna-section-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 0.1rem 1.1rem 0.42rem;
   color: #5b7f8e;
   font-size: 1.2rem;
@@ -134,7 +144,9 @@
 }
 
 .merna-channel-hash {
+  display: grid;
   width: 1.75rem;
+  place-items: center;
   color: #5e8392;
   font-size: 1.95rem;
   font-weight: 600;
@@ -142,17 +154,8 @@
   text-align: center;
 }
 
-.merna-channel-badge {
-  display: grid;
-  width: 1.7rem;
-  height: 1.7rem;
-  margin-left: auto;
-  place-items: center;
-  border-radius: 50%;
-  background: #fb666b;
-  color: white;
-  font-size: 0.85rem;
-  font-weight: 600;
+.merna-channel-hash .codicon {
+  font-size: 1.2rem;
 }
 
 .merna-bots-toolbar {

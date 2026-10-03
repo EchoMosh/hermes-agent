@@ -27,7 +27,9 @@ import { vi } from 'vitest'
 export interface ScriptedMessage {
   content: string
   display_kind?: string
+  display_metadata?: Record<string, unknown> | string
   role: string
+  timestamp?: number
 }
 
 export interface ScriptedSession {

@@ -493,6 +493,24 @@
       }
     },
     {
+      "name": "computer.feed",
+      "summary": "Bounded, redacted tool timeline for one profile's canonical Bot Chat.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/ComputerFeedParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/ComputerFeedResult"
+        }
+      }
+    },
+    {
       "name": "config.get",
       "summary": "Read one normalised config value (or the whole effective config) the way the UIs render it.",
       "params": [
@@ -8491,6 +8509,431 @@
         },
         "title": "CompressionSummary",
         "type": "object"
+      },
+      "ComputerFeedParams": {
+        "additionalProperties": false,
+        "description": "``profile`` selects the served home; ``session_id`` is its canonical Bot Chat tip.",
+        "properties": {
+          "session_id": {
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          },
+          "after": {
+            "default": 0,
+            "minimum": 0,
+            "title": "After",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 240,
+            "maximum": 500,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "ComputerFeedParams",
+        "type": "object"
+      },
+      "ComputerFeedResult": {
+        "additionalProperties": false,
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/ComputerSession"
+          },
+          "cursor": {
+            "default": 0,
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/ComputerStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComputerPlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "helpers": {
+            "items": {
+              "$ref": "#/components/schemas/ComputerHelper"
+            },
+            "title": "Helpers",
+            "type": "array"
+          },
+          "say": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Say"
+          },
+          "now": {
+            "title": "Now",
+            "type": "number"
+          }
+        },
+        "required": [
+          "session",
+          "now"
+        ],
+        "title": "ComputerFeedResult",
+        "type": "object"
+      },
+      "ComputerHelper": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Goal"
+          },
+          "status": {
+            "default": "idle",
+            "title": "Status",
+            "type": "string"
+          },
+          "started_at": {
+            "default": 0,
+            "title": "Started At",
+            "type": "number"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ended At"
+          },
+          "last_activity_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Activity At"
+          },
+          "tool_calls": {
+            "default": 0,
+            "title": "Tool Calls",
+            "type": "integer"
+          },
+          "last_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Step"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ComputerHelper",
+        "type": "object"
+      },
+      "ComputerPlan": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "goal": {
+            "default": "",
+            "title": "Goal",
+            "type": "string"
+          },
+          "status": {
+            "default": "active",
+            "title": "Status",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/ComputerPlanStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "done": {
+            "default": 0,
+            "title": "Done",
+            "type": "integer"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Current"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ComputerPlan",
+        "type": "object"
+      },
+      "ComputerPlanStep": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "status": {
+            "default": "not_started",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "ComputerPlanStep",
+        "type": "object"
+      },
+      "ComputerSession": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "model": {
+            "default": "",
+            "title": "Model",
+            "type": "string"
+          },
+          "started_at": {
+            "default": 0,
+            "title": "Started At",
+            "type": "number"
+          },
+          "last_activity_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Activity At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ended At"
+          },
+          "status": {
+            "default": "idle",
+            "title": "Status",
+            "type": "string"
+          },
+          "tool_calls": {
+            "default": 0,
+            "title": "Tool Calls",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ComputerSession",
+        "type": "object"
+      },
+      "ComputerStep": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "default": 0,
+            "title": "Ts",
+            "type": "number"
+          },
+          "done_ts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Done Ts"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ComputerStepKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ComputerStepStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Preview"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "tool",
+          "kind",
+          "status",
+          "title"
+        ],
+        "title": "ComputerStep",
+        "type": "object"
+      },
+      "ComputerStepKind": {
+        "enum": [
+          "browser",
+          "terminal",
+          "code",
+          "search",
+          "plan",
+          "delegate",
+          "memory",
+          "ask",
+          "other"
+        ],
+        "title": "ComputerStepKind",
+        "type": "string"
+      },
+      "ComputerStepStatus": {
+        "enum": [
+          "running",
+          "ok",
+          "error"
+        ],
+        "title": "ComputerStepStatus",
+        "type": "string"
       },
       "ConfigGetParams": {
         "additionalProperties": false,

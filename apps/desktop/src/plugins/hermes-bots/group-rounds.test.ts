@@ -285,6 +285,128 @@ describe('routing', () => {
     expect(log(room, 'Core').map(entry => entry.text)).toEqual(['@hermes status?', 'Reply 1 from this device.'])
   })
 
+  it('persists a member tapback from a pass-only turn without appending or re-driving the room', async () => {
+    const room = await loadRoom({
+      turn: ({ session }) => {
+        const prompt = session.messages.at(-1)
+
+        if (prompt?.role === 'user') {
+          prompt.display_metadata = {
+            reactions: [{ at: 1_700_000_000, author: 'agent', emoji: '❤️' }]
+          }
+        }
+
+        // `react_to_message` can be the whole answer: the core turn may leave
+        // no assistant text row after the tool call.
+        return []
+      }
+    })
+
+    const member: GroupMember = {
+      connectionId: 'local',
+      connectionLabel: 'This device',
+      installId: 'gw-local',
+      name: 'helper',
+      title: ''
+    }
+
+    room.rounds.sendToGroupChat('Core', [member], 'Thank you for handling that.')
+    await settle(room, 'Core')
+
+    expect(log(room, 'Core')).toHaveLength(1)
+    expect(log(room, 'Core')[0].reactions).toEqual([
+      {
+        at: 1_700_000_000_000,
+        emoji: '❤️',
+        from: { gateway: 'gw-local', kind: 'member', name: 'helper', source: 'This device' }
+      }
+    ])
+    expect(room.gateway.calls).toHaveLength(1)
+    expect(room.chat.$groupChats.get().Core.stranded?.helper).toBeUndefined()
+    expect(room.gateway.rpcFor('session.create')[0]?.params.source).toBe('desktop')
+    expect(room.gateway.rpcFor('session.resume').every(call => call.params.source === 'desktop')).toBe(true)
+  })
+
+  it('targets the newest visible message in the member thread instead of the global room tail', async () => {
+    const room = await loadRoom({
+      turn: ({ session }) => {
+        const prompt = session.messages.at(-1)
+
+        if (prompt?.role === 'user') {
+          prompt.display_metadata = {
+            reactions: [{ at: 1_700_000_002, author: 'agent', emoji: '👍' }]
+          }
+        }
+
+        return []
+      }
+    })
+
+    const member: GroupMember = { name: 'helper', title: '' }
+    const roundMembers = await import('./group-round-members')
+
+    room.chat.$groupChats.set({
+      Core: {
+        log: [
+          { at: 1, from: { kind: 'user', name: 'You' }, id: 'thread-a-message', text: 'Thread A', thread: 'a' },
+          { at: 2, from: { kind: 'user', name: 'You' }, id: 'thread-b-message', text: 'Thread B', thread: 'b' }
+        ],
+        watermarks: {}
+      }
+    })
+
+    await roundMembers.runGroupRoundMember(
+      {
+        binding: { isLive: () => true },
+        group: 'Core',
+        isCurrent: () => true,
+        members: [member],
+        startEpoch: 0,
+        thread: 'a'
+      },
+      member
+    )
+
+    expect(log(room, 'Core')[0].reactions?.[0]).toMatchObject({ emoji: '👍', from: { name: 'helper' } })
+    expect(log(room, 'Core')[1].reactions).toBeUndefined()
+    expect(log(room, 'Core')).toHaveLength(2)
+  })
+
+  it('lets a member react to another member message without creating a reply loop', async () => {
+    const room = await loadRoom({
+      turn: ({ profile, session }) => {
+        if (profile === 'research') {
+          return 'The release is live. @builder take a look.'
+        }
+
+        const prompt = session.messages.at(-1)
+
+        if (prompt?.role === 'user') {
+          prompt.display_metadata = {
+            reactions: [{ at: 1_700_000_003, author: 'agent', emoji: '🎉' }]
+          }
+        }
+
+        return []
+      }
+    })
+
+    const members: GroupMember[] = [
+      { name: 'research', title: '' },
+      { name: 'builder', title: '' }
+    ]
+
+    room.rounds.sendToGroupChat('Core', members, '@research ship it')
+    await settle(room, 'Core')
+
+    const entries = log(room, 'Core')
+    const researchReply = entries.find(entry => entry.from.name === 'research')
+
+    expect(researchReply?.reactions?.[0]).toMatchObject({ emoji: '🎉', from: { kind: 'member', name: 'builder' } })
+    expect(entries.map(entry => entry.from.name)).toEqual(['You', 'research'])
+    expect(room.gateway.calls.map(call => call.profile)).toEqual(['research', 'builder'])
+  })
+
   // Two Desktops label the same gateway differently ("Central" here, "Studio"
   // there): the reply's gateway install_id, not the label, decides `(you)`.
   it('matches self on the gateway install_id when Desktops label the connection differently', async () => {

@@ -12,6 +12,11 @@
 import { atom, host } from '@hermes/plugin-sdk'
 
 import { $botMeta, $lastRoster, botRosterKey } from './data'
+import {
+  groupMessageWithStableId,
+  mergeGroupMessageEntries,
+  mergeGroupMessageReactions
+} from './group-message-reactions'
 import { groupMemberReferencesConnection, markOrphanedGroupMemberDescriptor } from './hygiene'
 import { displayName } from './labels'
 import { botRosterMeta } from './routing'
@@ -24,6 +29,7 @@ import type {
   GroupMessage,
   GroupMessageAuthor,
   GroupPrompt,
+  GroupRoomKind,
   RosterRow
 } from './types'
 
@@ -61,6 +67,7 @@ let groupChatSyncTimer: ReturnType<typeof setTimeout> | null = null
 interface GroupChatSyncRoom {
   holdDetection?: boolean
   image?: null | string
+  kind?: GroupRoomKind
   log: GroupMessage[]
   members?: GroupMember[]
   name?: string
@@ -175,6 +182,15 @@ export function compactGroupChatSyncText(text: string, limit = GROUP_CHAT_SYNC_T
     text: `${raw.slice(0, budget)}${GROUP_CHAT_SYNC_TRUNCATION_MARK}`,
     truncated: true as const
   }
+}
+
+function explicitGroupRoomKind(value: unknown): GroupRoomKind | undefined {
+  return value === 'channel' || value === 'group-dm' ? value : undefined
+}
+
+/** Compatibility view of room metadata: every pre-channel room is a group DM. */
+export function groupRoomKind(room: Pick<GroupChat, 'kind'> | null | undefined): GroupRoomKind {
+  return explicitGroupRoomKind(room?.kind) || 'group-dm'
 }
 
 /** #114341: the ui_meta mirror is the only on-disk copy of a room, so a
@@ -313,18 +329,21 @@ export function groupChatSyncSnapshot(
   }
 
   for (const [name, room] of ranked) {
-    const log: GroupMessage[] = room.log.slice(-GROUP_CHAT_SYNC_MESSAGES).map(entry => {
+    const log: GroupMessage[] = room.log.slice(-GROUP_CHAT_SYNC_MESSAGES).map(rawEntry => {
+      const entry = groupMessageWithStableId(rawEntry)
       const compacted = compactGroupChatSyncText(String(entry?.text || ''))
+      const reactions = mergeGroupMessageReactions(undefined, entry?.reactions).slice(-32)
 
       return {
-        ...(entry?.id
-          ? {
-              id: String(entry.id).slice(0, 160)
-            }
-          : {}),
+        id: String(entry.id).slice(0, 160),
         from: {
           kind: entry?.from?.kind === 'member' ? 'member' : 'user',
           name: String(entry?.from?.name || (entry?.from?.kind === 'member' ? 'Bot' : 'You')).slice(0, 128),
+          ...(entry?.from?.gateway
+            ? {
+                gateway: String(entry.from.gateway).slice(0, 128)
+              }
+            : {}),
           ...(entry?.from?.source
             ? {
                 source: String(entry.from.source).slice(0, 128)
@@ -333,6 +352,11 @@ export function groupChatSyncSnapshot(
         },
         text: compacted.text,
         at: Number(entry?.at || 0),
+        ...(reactions.length
+          ? {
+              reactions
+            }
+          : {}),
         ...(entry?.thread
           ? {
               thread: String(entry.thread).slice(0, 128)
@@ -355,6 +379,11 @@ export function groupChatSyncSnapshot(
         : {}),
       log,
       holdDetection: room.holdDetection !== false,
+      ...(explicitGroupRoomKind(room.kind)
+        ? {
+            kind: explicitGroupRoomKind(room.kind)
+          }
+        : {}),
       revision: Math.max(0, Number(room?.syncRevision ?? room?.revision ?? 0)),
       members: (Array.isArray(room.members) ? room.members : []).slice(0, GROUP_CHAT_MAX_MEMBERS).map(member => ({
         name: String(member?.name || '').slice(0, 128),
@@ -536,8 +565,12 @@ export function mergeGroupChatSyncSnapshots(
 
     const entries = new Map<string, GroupMessage>()
 
-    for (const entry of [...(remoteRoom?.log || []), ...(localRoom?.log || [])]) {
-      entries.set(groupChatSyncEntryKey(entry), entry)
+    for (const rawEntry of [...(remoteRoom?.log || []), ...(localRoom?.log || [])]) {
+      const entry = groupMessageWithStableId(rawEntry)
+      const entryKey = groupChatSyncEntryKey(entry)
+      const current = entries.get(entryKey)
+
+      entries.set(entryKey, current ? mergeGroupMessageEntries(entry, current) : entry)
     }
 
     // Identity fields (display name, membership, picture) follow the higher
@@ -572,6 +605,11 @@ export function mergeGroupChatSyncSnapshots(
         : remoteRoom?.holdDetection !== false
     }
 
+    // An older writer omits room kind entirely. Preserve the other side's
+    // explicit metadata instead of turning a channel back into a legacy DM.
+    const alternateIdentity = identity === localRoom ? remoteRoom : localRoom
+    const kind = explicitGroupRoomKind(identity?.kind) || explicitGroupRoomKind(alternateIdentity?.kind)
+
     rooms[key] = {
       ...(identity?.name
         ? {
@@ -589,6 +627,11 @@ export function mergeGroupChatSyncSnapshots(
         return byTime || groupChatSyncEntryKey(left).localeCompare(groupChatSyncEntryKey(right))
       }),
       holdDetection,
+      ...(kind
+        ? {
+            kind
+          }
+        : {}),
       members,
       revision: Math.max(remoteRevision, localRevision),
       ...(omitted > 0
@@ -759,22 +802,32 @@ export function mergeRemoteGroupChatSnapshotIntoRooms(
     const localRevision = Math.max(0, Number(existing.syncRevision || 0))
 
     const entries = new Map<string, GroupMessage>(
-      (Array.isArray(existing.log) ? existing.log : []).map(entry => [groupChatSyncEntryKey(entry), entry])
+      (Array.isArray(existing.log) ? existing.log : []).map(rawEntry => {
+        const entry = groupMessageWithStableId(rawEntry)
+
+        return [groupChatSyncEntryKey(entry), entry]
+      })
     )
 
     const members = new Map<string, GroupMember>(
       (Array.isArray(existing.members) ? existing.members : []).map(member => [groupChatSyncMemberKey(member), member])
     )
 
-    for (const entry of projected.log) {
+    for (const rawEntry of projected.log) {
+      const entry = groupMessageWithStableId(rawEntry)
       const entryKey = groupChatSyncEntryKey(entry)
+      const current = entries.get(entryKey)
 
       // The projection is COMPACT (truncated text, no images). When the same
       // entry exists locally, the local rich copy is authoritative — merging
       // the compact twin over it would strip attachments and retrigger
       // watermark deltas for members that already saw it (phantom rounds).
-      if (!entries.has(entryKey)) {
+      if (!current) {
         entries.set(entryKey, entry)
+      } else {
+        // Reactions are an in-place mutation of this same stable entry. Merge
+        // their participant slots while retaining the richer local body.
+        entries.set(entryKey, mergeGroupMessageEntries(current, entry))
       }
     }
 
@@ -823,6 +876,10 @@ export function mergeRemoteGroupChatSnapshotIntoRooms(
         !isPreserved && remoteRevision >= localRevision
           ? projected.holdDetection !== false
           : existing.holdDetection !== false,
+      kind:
+        !isPreserved && remoteRevision >= localRevision && explicitGroupRoomKind(projected.kind)
+          ? explicitGroupRoomKind(projected.kind)
+          : explicitGroupRoomKind(existing.kind),
       watermarks: bounded.watermarks,
       sessions: existing.sessions && typeof existing.sessions === 'object' ? existing.sessions : {},
       stranded: existing.stranded && typeof existing.stranded === 'object' ? existing.stranded : {},
@@ -908,6 +965,7 @@ export function durableGroupChatRooms(all: Record<string, GroupChat> = $groupCha
     durable[name] = {
       log: room.log,
       holdDetection: room.holdDetection !== false,
+      kind: explicitGroupRoomKind(room.kind),
       heldMessages: room.heldMessages || {},
       watermarks: room.watermarks || {},
       sessions: room.sessions || {},
@@ -1523,11 +1581,13 @@ export function trimGroupChatLog(
   limit = GROUP_CHAT_LOG_RETAIN,
   chars = GROUP_CHAT_LOG_RETAIN_CHARS
 ) {
-  const capped = log.map(entry =>
-    entry.text.length > GROUP_CHAT_HISTORY_LINE_CHARS
+  const capped = log.map(rawEntry => {
+    const entry = groupMessageWithStableId(rawEntry)
+
+    return entry.text.length > GROUP_CHAT_HISTORY_LINE_CHARS
       ? { ...entry, text: compactGroupChatSyncText(entry.text, GROUP_CHAT_HISTORY_LINE_CHARS).text }
       : entry
-  )
+  })
 
   let total = 0
   let keep = 0
@@ -1612,6 +1672,7 @@ export function updateGroupChat(
       durable[name] = {
         log: room.log,
         holdDetection: room.holdDetection !== false,
+        kind: explicitGroupRoomKind(room.kind),
         heldMessages: room.heldMessages || {},
         watermarks: room.watermarks,
         sessions: room.sessions || {},
@@ -1727,9 +1788,18 @@ export function appendGroupChatEntry(
   thread?: null | string,
   images?: Attachment[]
 ): GroupMessage {
+  const priorLog = ($groupChats.get()[group] || {}).log || []
+  const lastEntry = priorLog[priorLog.length - 1]
+  const clockAt = Date.now()
+  const lastAt = Number(lastEntry?.at)
+
   const entry: GroupMessage = {
     id: groupChatEntryId(),
-    at: Date.now(),
+    // A user send and its fast reply often share one millisecond. Sync merges
+    // sort equal timestamps by id, which can put the reply before its prompt
+    // and make a later reaction target the wrong line. Keep room time strictly
+    // increasing at the append boundary.
+    at: Number.isFinite(lastAt) ? Math.max(clockAt, lastAt + 1) : clockAt,
     from,
     // Stored bodies share the prompt's per-line cap (see trimGroupChatLog);
     // cutting here too keeps the duplicate-echo guard comparing like with like.
@@ -1747,9 +1817,6 @@ export function appendGroupChatEntry(
   // loop both committing the same member reply) lands back-to-back and
   // byte-identical. Drop the echo instead of flooding the room. User
   // entries and non-adjacent repeats are never touched.
-  const priorLog = ($groupChats.get()[group] || {}).log || []
-  const lastEntry = priorLog[priorLog.length - 1]
-
   if (isDuplicateGroupAppend(lastEntry, from, entry.text, entry.thread)) {
     return lastEntry
   }
@@ -1879,7 +1946,7 @@ export function assignLegacyThreads(log: GroupMessage[]): GroupMessage[] {
     if (entry?.thread) {
       current = null
 
-      return entry
+      return groupMessageWithStableId(entry)
     }
 
     const prev = log[i - 1]
@@ -1889,9 +1956,9 @@ export function assignLegacyThreads(log: GroupMessage[]): GroupMessage[] {
       current = `legacy-${n++}`
     }
 
-    return {
+    return groupMessageWithStableId({
       ...entry,
       thread: current
-    }
+    })
   })
 }

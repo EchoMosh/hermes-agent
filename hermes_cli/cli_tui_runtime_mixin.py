@@ -165,6 +165,13 @@ class CLITuiRuntimeMixin:
         # deferred as "worth its own review" and never re-landed (#20271).
         self._drain_interrupt_queue_to_pending_input()
 
+        # Admit completed results before the goal hook: queued input preempts judging
+        # and must reach the parent before a gate-failure continuation. An interrupted
+        # turn pauses its goal first, so a completion cannot bypass Ctrl+C handling.
+        if not self._last_turn_interrupted:
+            with suppress(Exception):
+                self._drain_process_notifications("cli-post-turn")
+
         # /goal continuation (queued user input still preempts), then /loop tick completion.
         for hook, what in (
             (self._maybe_continue_goal_after_turn, "goal continuation"),
@@ -191,8 +198,9 @@ class CLITuiRuntimeMixin:
                     _cprint(f"{_DIM}{t('cli.voice.autorestart_failed', error=e)}{_RST}")
             threading.Thread(target=_restart_recording, daemon=True).start()
 
-        with suppress(Exception):
-            self._drain_process_notifications("cli-post-turn")
+        if self._last_turn_interrupted:
+            with suppress(Exception):
+                self._drain_process_notifications("cli-post-turn")
 
     def _tui_signal_handler(self, signum, frame):
         """SIGHUP/SIGTERM -> graceful shutdown.

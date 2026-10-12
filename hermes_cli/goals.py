@@ -1488,8 +1488,24 @@ class GoalManager:
         if state is None or state.status != "active":
             return _decision(state.status if state else None, False, None, "inactive", "no active goal", "")
 
+        # An expired helper wait gets one normal evaluation rather than renewing itself
+        # indefinitely while a stuck child remains live.
+        delegation_wait_expired = bool(
+            state.waiting_on_delegations > 0 and state.waiting_until
+            and time.time() >= state.waiting_until
+        )
         # Parked on a live process or an unexpired deadline: quiesce without burning a turn.
         if self.is_waiting():
+            return self._waiting_decision(state)
+
+        # Helpers still own unfinished work. A missing deliverable is expected here:
+        # running its quality gate would queue repair work before results can arrive.
+        # Reuse the bounded native barrier, which wakes when any batch returns.
+        if active_delegations > 0 and not delegation_wait_expired:
+            self.wait_for_seconds(
+                _MAX_BARRIER_WAIT_S, reason=f"waiting on {active_delegations} active delegations",
+                on_delegations=active_delegations,
+            )
             return self._waiting_decision(state)
 
         state.turns_used += 1

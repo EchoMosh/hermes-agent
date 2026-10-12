@@ -75,18 +75,32 @@ def test_live_helpers_defer_gates_and_budget_until_results_or_deadline(isolated_
     assert calls.read_text() == "xx" and mgr.state.turns_used == 2
     judge.assert_called_once()
 
-    # A helper that never finishes cannot renew an expired barrier at this boundary.
-    mgr.set("bounded helper wait")
+    # The native idle hook clears an expired barrier BEFORE the resumed model turn.
+    # That expiry must survive manager reloads and still spend a normal evaluation.
+    mgr.set("bounded helper wait", max_turns=1)
     mgr.add_gate(f'"{sys.executable}" "{gate}"')
+    judge.return_value = ("continue", "helper is still running", False, None, False)
     ad._records["second"]["status"] = "running"
     assert evaluate()["verdict"] == "waiting"
     mgr.state.waiting_until = time.time() - 1
-    assert evaluate()["status"] == "done"
+    mgr._save()
+    from hermes_cli.cli_loops_mixin import CLILoopsMixin
+    idle_cli = SimpleNamespace(_pending_input=queue.Queue(), _get_goal_manager=lambda: mgr)
+    CLILoopsMixin._maybe_resume_parked_goal(idle_cli)
+    assert "Continuing toward your standing goal" in idle_cli._pending_input.get_nowait()
+    assert not mgr.is_waiting() and mgr.state.waiting_until == 0.0
+    assert mgr.state.delegation_wait_expired
+    mgr = goals.GoalManager(mgr.session_id)
+    assert evaluate()["status"] == "paused"
     assert mgr.state.turns_used == 1 and calls.read_text() == "xxx"
+    assert not mgr.state.delegation_wait_expired
     mgr.set("cancel helper wait")
     assert evaluate()["verdict"] == "waiting"
+    mgr.state.waiting_until = time.time() - 1
+    assert not mgr.is_waiting() and mgr.state.delegation_wait_expired
     mgr.pause(reason="cancelled")
     assert not mgr.is_waiting() and evaluate()["verdict"] == "inactive"
+    assert not mgr.state.delegation_wait_expired
 
 
 def test_post_turn_admits_durable_results_before_goal_and_preserves_interrupt(isolated_goal, monkeypatch):

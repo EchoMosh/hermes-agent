@@ -445,6 +445,10 @@ class GoalState:
     # Live delegation batches when a timed WAIT was set because of them; the barrier lifts as soon
     # as that count drops (a batch returned), not only when the timer runs out.
     waiting_on_delegations: int = 0
+    # Lazy idle checks clear an expired barrier before the next turn. Preserve the
+    # expiry across that boundary/reloads so an unfinished helper cannot renew it
+    # without a normal, budgeted evaluation first.
+    delegation_wait_expired: bool = False
     waiting_reason: Optional[str] = None
     waiting_since: float = 0.0
     contract: GoalContract = field(default_factory=GoalContract)
@@ -471,6 +475,7 @@ class GoalState:
             waiting_on_pid=(int(data["waiting_on_pid"]) if data.get("waiting_on_pid") else None),
             waiting_on_session=(str(data["waiting_on_session"]) if data.get("waiting_on_session") else None),
             waiting_reason=data.get("waiting_reason"),
+            delegation_wait_expired=bool(data.get("delegation_wait_expired", False)),
             contract=GoalContract.from_dict(data.get("contract")),
             gates=[
                 GoalGate.from_dict(g) for g in (data.get("gates") or [])
@@ -491,6 +496,7 @@ class GoalState:
         self.waiting_on_session = None
         self.waiting_until = 0.0
         self.waiting_on_delegations = 0
+        self.delegation_wait_expired = False
         self.waiting_reason = None
         self.waiting_since = 0.0
 
@@ -1399,7 +1405,8 @@ class GoalManager:
     def stop_waiting(self) -> bool:
         """Clear any active wait barrier (pid / session / time). Returns True if one was cleared."""
         s = self._state
-        if s is None or (s.waiting_on_pid is None and s.waiting_on_session is None and not s.waiting_until):
+        if s is None or (s.waiting_on_pid is None and s.waiting_on_session is None
+                         and not s.waiting_until and not s.delegation_wait_expired):
             return False
         s.clear_wait()
         self._save()
@@ -1432,7 +1439,11 @@ class GoalManager:
                         self.session_id, s.waiting_on_session or s.waiting_on_pid, _MAX_BARRIER_WAIT_S)
             still = False
         if not still:
-            self.stop_waiting()
+            expired = bool(s.waiting_on_delegations > 0 and s.waiting_until
+                           and time.time() >= s.waiting_until)
+            s.clear_wait()
+            s.delegation_wait_expired = expired
+            self._save()
         return still
 
     # --- the main entry point called after every turn -----------------
@@ -1488,12 +1499,6 @@ class GoalManager:
         if state is None or state.status != "active":
             return _decision(state.status if state else None, False, None, "inactive", "no active goal", "")
 
-        # An expired helper wait gets one normal evaluation rather than renewing itself
-        # indefinitely while a stuck child remains live.
-        delegation_wait_expired = bool(
-            state.waiting_on_delegations > 0 and state.waiting_until
-            and time.time() >= state.waiting_until
-        )
         # Parked on a live process or an unexpired deadline: quiesce without burning a turn.
         if self.is_waiting():
             return self._waiting_decision(state)
@@ -1501,13 +1506,14 @@ class GoalManager:
         # Helpers still own unfinished work. A missing deliverable is expected here:
         # running its quality gate would queue repair work before results can arrive.
         # Reuse the bounded native barrier, which wakes when any batch returns.
-        if active_delegations > 0 and not delegation_wait_expired:
+        if active_delegations > 0 and not state.delegation_wait_expired:
             self.wait_for_seconds(
                 _MAX_BARRIER_WAIT_S, reason=f"waiting on {active_delegations} active delegations",
                 on_delegations=active_delegations,
             )
             return self._waiting_decision(state)
 
+        state.delegation_wait_expired = False
         state.turns_used += 1
         state.last_turn_at = time.time()
 

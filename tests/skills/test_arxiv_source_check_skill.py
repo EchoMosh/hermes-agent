@@ -347,3 +347,12 @@ def test_saved_review_must_match_candidate_and_original_sources(helpers, origina
     assert result["verification_status"] == "needs_inspection"
     assert result["accepted_counts"] is None
     assert result["inspection_candidates"] == [candidate]
+
+
+def test_requested_pin_cannot_relabel_another_valid_original(helpers, originals):
+    source, _ = helpers
+    args = originals()
+    assert source.run(args)['verification_status'] == 'verified'
+    args.pin = '9999.00002v2'
+    with pytest.raises(ValueError, match='requested_pin_does_not_match_source_receipt'):
+        source.run(args)

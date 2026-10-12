@@ -216,6 +216,8 @@ def run(args):
     if not html_receipt.exists():raise ValueError('html_source_receipt_missing')
     if not lit_receipt.exists():raise ValueError('pdf_extraction_receipt_missing')
     source=load_receipt(html_receipt,args.pin)
+    if source.get('pin') != args.pin:
+        raise ValueError('requested_pin_does_not_match_source_receipt')
     evidence=analyze(html,lit,pdf,lit_receipt,source)
     identities=[dict(c,section=c['region'],source_type='native_html_caption') for c in evidence['caption_identities']]
     result={'schema':SCHEMA,'pin':args.pin,'producer_run_id':os.environ.get('HERMES_REPLAY_RUN_ID') or args.run_id or str(uuid.uuid4()),

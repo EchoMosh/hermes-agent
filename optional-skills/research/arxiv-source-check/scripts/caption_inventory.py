@@ -131,7 +131,11 @@ def analyze(html_path,lit_path,pdf_path,lit_source_path,source):
     if sha(pdf_path)!=prov.get('pdf_sha256'):issues.append('pdf_source_hash_mismatch')
     if sha(lit_path)!=prov.get('extraction_sha256'):issues.append('extraction_hash_mismatch')
     if prov.get('tool')!='LiteParse':issues.append('extraction_tool_not_LiteParse')
-    if not lit['pages'] or f'arXiv:{pin}' not in lit['pages'][0].get('text',''):issues.append('pdf_version_watermark_mismatch')
+    # Spatial PDF extraction can split the rotated watermark ("arX iv").
+    # Match the literal version after whitespace folding; v1 must not match v10.
+    first_page = re.sub(r'\s+', '', lit['pages'][0].get('text', '')) if lit['pages'] else ''
+    if not re.search(re.escape(f'arXiv:{pin}') + r'(?!\d)', first_page, re.I):
+        issues.append('pdf_version_watermark_mismatch')
     captions,bounds,ignored,warnings=parse_html(h);candidates=pdf_candidates(lit);matched=set()
     for cap in captions:
         words=cap['caption_text'].split();prefix=norm(' '.join(words[:6]));hits=[]

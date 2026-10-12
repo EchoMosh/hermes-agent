@@ -356,3 +356,22 @@ def test_requested_pin_cannot_relabel_another_valid_original(helpers, originals)
     args.pin = '9999.00002v2'
     with pytest.raises(ValueError, match='requested_pin_does_not_match_source_receipt'):
         source.run(args)
+
+
+@pytest.mark.parametrize('watermark,verified', [
+    ('arX iv: 9999.00001 v2 [cs.CV]', True),
+    ('arXiv:9999.00001v20 [cs.CV]', False),
+    ('arXiv:9999.00002v2 [cs.CV]', False),
+])
+def test_spatial_watermark_preserves_exact_version(helpers, originals, watermark, verified):
+    source, _ = helpers
+    args = originals()
+    data = json.loads(args.lit_json.read_text())
+    data['pages'][0]['text'] = watermark
+    args.lit_json.write_text(json.dumps(data))
+    receipt = json.loads(args.lit_receipt.read_text())
+    receipt['extraction_sha256'] = digest(args.lit_json)
+    args.lit_receipt.write_text(json.dumps(receipt))
+    result = source.run(args)
+    assert (result['verification_status'] == 'verified') is verified
+    assert (result['accepted_counts'] is not None) is verified

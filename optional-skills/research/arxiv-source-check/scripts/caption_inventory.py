@@ -57,6 +57,21 @@ def caption_text_agrees(html_text,pdf_prefix):
 LABEL=re.compile(r'^(Figure|Fig\.?|Table)\s+([A-Za-z0-9]+(?:[.\-][A-Za-z0-9]+)*)\s*[:.]?\s*',re.I)
 PDF_LABEL=re.compile(r'^(Figure|Fig\.?|Table)\s+([A-Za-z0-9]+(?:[.\-][A-Za-z0-9]+)*)\s*[:.]\s*(.*)$',re.I)
 
+def table_rows(container,captioned,limit=80):
+    """Rows of the table inside ``container`` (the element that also holds its caption).
+    A flattened page can place a caption next to a different table; the element binds them.
+    Rows of a nested float with its own caption belong to that float; uncaptioned layout
+    wrappers (LaTeXML flex/inline figures) do not claim rows. ``captioned`` holds id()s."""
+    rows=[]
+    for tr in container.walk():
+        if tr.tag!='tr':continue
+        owner=next((a for a in tr.ancestors() if a is container or id(a) in captioned),None)
+        if owner is not container:continue
+        cells=[clean(td.text())[:120] for td in tr.children if isinstance(td,Node) and td.tag in {'td','th'}]
+        if cells:rows.append(cells)
+        if len(rows)>=limit:break
+    return rows
+
 def parse_html(text):
     dom=DOM(text);nodes=list(dom.root.walk());docs=[n for n in nodes if 'ltx_document' in n.classes]
     scope=docs[0] if len(docs)==1 else dom.root;nodes=list(scope.walk());warnings=[]
@@ -88,6 +103,10 @@ def parse_html(text):
         else:
             nxt=next((x for x in nodes if x.tag in headings and b['order']<x.order<=b['scope_end'] and clean(x.text())),None)
             b['first_heading']=clean(nxt.text()) if nxt else ''
+    float_of=lambda n:next((a for a in n.ancestors() if a.tag in {'figure','table'} or a.classes & {'ltx_figure','ltx_table'}),None)
+    # Panels (sub-tables labelled (a), (b)) are part of their parent table, as in the counts above.
+    captioned={id(f) for f in (float_of(n) for n in nodes if n.tag in {'figcaption','caption'} or 'ltx_caption' in n.classes)
+               if f is not None and 'ltx_figure_panel' not in f.classes}
     captions=[];ignored=[];seen=set()
     for n in nodes:
         if n.tag not in {'figcaption','caption'} and 'ltx_caption' not in n.classes:continue
@@ -114,7 +133,8 @@ def parse_html(text):
         standalone=[b for b in boundaries if b['method']=='standalone_source_heading' and b['order']<n.order<=b['scope_end'] and any(a.order==b['scope_order'] for a in ancestors)]
         boundary=next((b for b in boundaries if native and b['order']==native.order),None) if native else (standalone[-1] if standalone else None)
         content=clean(n.text());content=LABEL.sub('',content,count=1).lstrip(': .')
-        captions.append({'identity':identity,'kind':kind,'label':m.group(2),'container_id':container.attrs.get('id'),'caption_order':n.order,'tag_text':labeltext,'caption_text':content,'region':'appendix' if boundary else 'main','boundary_evidence':boundary})
+        captions.append({'identity':identity,'kind':kind,'label':m.group(2),'container_id':container.attrs.get('id'),'caption_order':n.order,'tag_text':labeltext,'caption_text':content,'region':'appendix' if boundary else 'main','boundary_evidence':boundary,
+                         'rows':table_rows(container,captioned) if kind=='table' else []})
     # A source object without its caption is a completeness problem, even if
     # the PDF scanner also misses that caption. Nested data tables are not new
     # separately captioned source objects.

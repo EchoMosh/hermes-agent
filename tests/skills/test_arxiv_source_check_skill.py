@@ -534,3 +534,55 @@ def test_first_appendix_heading_for_native_appendix_and_none(helpers, originals)
     assert bounds[0]["first_heading"] == "Appendix A More Details"
     result = source.run(originals())
     assert result["first_appendix_heading"] is None
+
+
+# A caption can sit below its table, so flattened text reads "rows of table A,
+# caption A, rows of table B". The HTML element binds each caption to its own
+# rows; nested floats keep their own rows (#1272).
+def _float_table(ident, label, caption_text, rows, inner=""):
+    body = "".join("<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>" for row in rows)
+    return (f'<figure class="ltx_table" id="{ident}"><table class="ltx_tabular">{body}</table>{inner}'
+            + (f'<figcaption><span class="ltx_tag_table">Table {label}:</span>{caption_text}</figcaption>' if label else "")
+            + "</figure>")
+
+
+def test_tables_bind_rows_to_the_caption_in_the_same_element(helpers):
+    _, inventory = helpers
+    html = ('<article class="ltx_document">'
+            + _float_table("T1", "1", "Synthetic quality scores.", [["Model", "Score"], ["Alpha", "1.5"]])
+            + _float_table("T2", "2", "Synthetic speed scores.", [["Model", "Speed"], ["Alpha", "9.25"]])
+            + "</article>")
+    tables = {c["identity"]: c for c in inventory.parse_html(html)[0] if c["kind"] == "table"}
+    assert tables["table:1"]["caption_text"] == "Synthetic quality scores."
+    assert tables["table:1"]["rows"] == [["Model", "Score"], ["Alpha", "1.5"]]
+    assert tables["table:2"]["rows"] == [["Model", "Speed"], ["Alpha", "9.25"]]
+
+
+def test_nested_tables_keep_their_own_rows_and_cli_exposes_tables(helpers, originals):
+    source, inventory = helpers
+    inner = (_float_table("T3a", "3", "Synthetic left part.", [["A", "0.1"]])
+             + _float_table("T3b", "4", "Synthetic right part.", [["B", "0.2"]]))
+    html = '<article class="ltx_document">' + _float_table("T3", "", "", [], inner=inner) + "</article>"
+    tables = {c["identity"]: c["rows"] for c in inventory.parse_html(html)[0] if c["kind"] == "table"}
+    assert tables == {"table:3": [["A", "0.1"]], "table:4": [["B", "0.2"]]}
+    assert source.run(originals())["tables"] == []
+
+
+def test_layout_wrapper_inside_a_table_float_does_not_hide_its_rows(helpers):
+    _, inventory = helpers
+    wrapped = ('<figure class="ltx_table" id="T5"><figure class="ltx_figure ltx_flex_size_1" id="T5.w">'
+               '<table class="ltx_tabular"><tr><td>Model</td><td>Score</td></tr><tr><td>Beta</td><td>2.5</td></tr></table>'
+               '</figure><figcaption><span class="ltx_tag_table">Table 5:</span>Synthetic wrapped table.</figcaption></figure>')
+    tables = [c for c in inventory.parse_html('<article class="ltx_document">' + wrapped + '</article>')[0] if c["kind"] == "table"]
+    assert [c["rows"] for c in tables] == [[["Model", "Score"], ["Beta", "2.5"]]]
+
+
+def test_panel_rows_roll_up_to_their_parent_table(helpers):
+    _, inventory = helpers
+    panel = lambda ident, row, cap: (f'<figure class="ltx_table ltx_figure_panel" id="{ident}"><table class="ltx_tabular">'
+                                     f'<tr><td>{row[0]}</td><td>{row[1]}</td></tr></table><figcaption>{cap}</figcaption></figure>')
+    html = ('<article class="ltx_document"><figure class="ltx_table" id="T6"><div class="ltx_flex_figure">'
+            + panel("T6.st1", ["Left", "0.3"], "(a) Synthetic left panel.") + panel("T6.st2", ["Right", "0.4"], "(b) Synthetic right panel.")
+            + '</div><figcaption><span class="ltx_tag_table">Table 6:</span>Synthetic paneled table.</figcaption></figure></article>')
+    tables = [c for c in inventory.parse_html(html)[0] if c["kind"] == "table"]
+    assert [(c["identity"], c["rows"]) for c in tables] == [("table:6", [["Left", "0.3"], ["Right", "0.4"]])]

@@ -121,28 +121,44 @@ def pdf_candidates(lit):
             out.append({'identity':f'{kind}:{m.group(2)}','page':p['page'],'text_item_index':i,'prefix':content,'bbox':[item['x'],item['y'],item['width'],item['height']],'text':line})
     return out
 
+def observed_page_head(lit):
+    """Page-1 text behind the watermark check, as extracted and after whitespace
+    folding. Recorded from the extraction itself so an inspector sees what was
+    compared whichever predicate variant is in force."""
+    text=lit['pages'][0].get('text','') if lit['pages'] else ''
+    return {'observed_first_page_head':text[:200],'observed_folded_head':re.sub(r'\s+','',text)[:120]}
+
 def analyze(html_path,lit_path,pdf_path,lit_source_path,source):
     pin=source['pin'];h=html_path.read_text();lit=json.loads(lit_path.read_text());prov=json.loads(lit_source_path.read_text())
-    issues=[]
-    if source.get('url')!=f'https://arxiv.org/html/{pin}':issues.append('source_url_pin_mismatch')
-    if sha(html_path)!=source.get('sha256') or html_path.stat().st_size!=source.get('bytes'):issues.append('html_provenance_hash_or_size_mismatch')
-    if not re.fullmatch(r'(?:\d{4}\.\d{4,5}|[a-z][a-z.\-]+/\d{7})v\d+',pin,re.I):issues.append('unpinned_source_version')
-    if not re.search(r'(?:href|content)=["\'][^"\']*(?:/abs/|/html/)'+re.escape(pin)+r'(?:["\'#?])',h):issues.append('html_pin_not_in_native_link_metadata')
-    if sha(pdf_path)!=prov.get('pdf_sha256'):issues.append('pdf_source_hash_mismatch')
-    if sha(lit_path)!=prov.get('extraction_sha256'):issues.append('extraction_hash_mismatch')
-    if prov.get('tool')!='LiteParse':issues.append('extraction_tool_not_LiteParse')
+    issues=[];issue_evidence={}
+    def fail(code,**observed):issues.append(code);issue_evidence[code]=observed
+    url=f'https://arxiv.org/html/{pin}'
+    if source.get('url')!=url:fail('source_url_pin_mismatch',expected=url,observed=source.get('url'))
+    html_sha,html_bytes=sha(html_path),html_path.stat().st_size
+    if html_sha!=source.get('sha256') or html_bytes!=source.get('bytes'):fail('html_provenance_hash_or_size_mismatch',recorded={'sha256':source.get('sha256'),'bytes':source.get('bytes')},observed={'sha256':html_sha,'bytes':html_bytes})
+    if not re.fullmatch(r'(?:\d{4}\.\d{4,5}|[a-z][a-z.\-]+/\d{7})v\d+',pin,re.I):fail('unpinned_source_version',pin=pin)
+    if not re.search(r'(?:href|content)=["\'][^"\']*(?:/abs/|/html/)'+re.escape(pin)+r'(?:["\'#?])',h):fail('html_pin_not_in_native_link_metadata',pin=pin,searched=[f'/abs/{pin}',f'/html/{pin}'])
+    pdf_sha=sha(pdf_path)
+    if pdf_sha!=prov.get('pdf_sha256'):fail('pdf_source_hash_mismatch',recorded=prov.get('pdf_sha256'),observed=pdf_sha)
+    lit_sha=sha(lit_path)
+    if lit_sha!=prov.get('extraction_sha256'):fail('extraction_hash_mismatch',recorded=prov.get('extraction_sha256'),observed=lit_sha)
+    if prov.get('tool')!='LiteParse':fail('extraction_tool_not_LiteParse',expected='LiteParse',recorded=prov.get('tool'))
     # Spatial PDF extraction can split the rotated watermark ("arX iv").
     # Match the literal version after whitespace folding; v1 must not match v10.
     first_page = re.sub(r'\s+', '', lit['pages'][0].get('text', '')) if lit['pages'] else ''
     if not re.search(re.escape(f'arXiv:{pin}') + r'(?!\d)', first_page, re.I):
-        issues.append('pdf_version_watermark_mismatch')
+        fail('pdf_version_watermark_mismatch',expected=f'arXiv:{pin}',
+             predicate='Case-insensitive search for the expected literal in page-1 text with all whitespace removed, rejecting a match followed by another digit.',
+             **observed_page_head(lit))
     captions,bounds,ignored,warnings=parse_html(h);candidates=pdf_candidates(lit);matched=set()
     for cap in captions:
         words=cap['caption_text'].split();prefix=norm(' '.join(words[:6]));hits=[]
         for i,c in enumerate(candidates):
             if c['identity']==cap['identity'] and prefix and norm(c['prefix']).startswith(prefix):hits.append((i,c))
-        cap['pdf_matches']=[c for _,c in hits]
-        cap['verification']='verified' if len(hits)==1 and not issues else ('ambiguous' if len(hits)>1 else 'unmatched')
+        cap['pdf_matches']=[c for _,c in hits];cap['pdf_match_count']=len(hits)
+        # Binding records what the PDF showed; verification adds the provenance gate.
+        cap['binding']='matched' if len(hits)==1 else ('ambiguous' if len(hits)>1 else 'unmatched')
+        cap['verification']=('verified' if not issues else 'blocked_by_provenance') if len(hits)==1 else cap['binding']
         cap['source_prefix_evidence']=' '.join(words[:6])
         if len(hits)==1:matched.add(hits[0][0])
     unmatched=[c for i,c in enumerate(candidates) if i not in matched]
@@ -173,4 +189,4 @@ def analyze(html_path,lit_path,pdf_path,lit_source_path,source):
     counts={region:dict(Counter(c['kind'] for c in captions if c['region']==region)) for region in ('main','appendix')}
     for region in counts:
         for kind in ('figure','table'):counts[region].setdefault(kind,0)
-    return {'schema':'structured-caption-inventory-v1','pin':pin,'source':source,'pdf_provenance':prov,'counts':counts,'boundaries':bounds,'caption_identities':captions,'ignored':ignored,'provenance_issues':issues,'conversion_warnings':warnings,'unverified_source_identities':unverified,'unmatched_pdf_candidates':unmatched,'excluded_pdf_body_references':refs,'accepted_counts':counts if not (issues or warnings or unverified or unmatched) else None,'status':'verified' if not (issues or warnings or unverified or unmatched) else 'unverified','limitations':['PDF candidates require caption label punctuation plus matching source prefix; labels alone never verify identity.','HTML conversion completeness is only accepted when every source identity binds once and every PDF caption candidate is accounted for.']}
+    return {'schema':'structured-caption-inventory-v1','pin':pin,'source':source,'pdf_provenance':prov,'counts':counts,'boundaries':bounds,'caption_identities':captions,'ignored':ignored,'provenance_issues':issues,'provenance_evidence':issue_evidence,'conversion_warnings':warnings,'unverified_source_identities':unverified,'unmatched_pdf_candidates':unmatched,'excluded_pdf_body_references':refs,'accepted_counts':counts if not (issues or warnings or unverified or unmatched) else None,'status':'verified' if not (issues or warnings or unverified or unmatched) else 'unverified','limitations':['PDF candidates require caption label punctuation plus matching source prefix; labels alone never verify identity.','HTML conversion completeness is only accepted when every source identity binds once and every PDF caption candidate is accounted for.']}

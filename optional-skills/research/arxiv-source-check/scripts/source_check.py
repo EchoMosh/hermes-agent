@@ -229,9 +229,12 @@ def run(args):
             'excluded_pdf_body_references':evidence['excluded_pdf_body_references'],'ignored_source_objects':evidence['ignored'],
             'expected_counts_supplied':False,'limitations':evidence['limitations']}
     rows=result['inspection_candidates']
-    rows.extend({'issue':'source_provenance','detail':x} for x in evidence['provenance_issues'])
+    rows.extend({'issue':'source_provenance','detail':x,'evidence':evidence['provenance_evidence'].get(x)} for x in evidence['provenance_issues'])
     rows.extend({'issue':'html_conversion_or_caption','detail':x} for x in evidence['conversion_warnings'])
-    rows.extend({'issue':'html_pdf_binding','identity':x} for x in evidence['unverified_source_identities'])
+    # A provenance failure blocks acceptance through its own row; binding rows
+    # name only the captions the PDF did not bind exactly once.
+    rows.extend({'issue':'html_pdf_binding','identity':c['identity'],'binding':c['binding'],'pdf_match_count':c['pdf_match_count'],
+                 'source_prefix_evidence':c['source_prefix_evidence']} for c in evidence['caption_identities'] if c['binding']!='matched')
     rows.extend({'issue':'pdf_caption_candidate','candidate':c,'candidate_key':candidate_key(result['source'],c)} for c in evidence['unmatched_pdf_candidates'])
     finish(result)
     save(outdir/'inventory.json',result)

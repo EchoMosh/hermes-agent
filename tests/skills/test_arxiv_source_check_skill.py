@@ -459,13 +459,13 @@ def test_url_mismatch_evidence_shows_expected_and_observed(helpers, originals):
 # a short line) or LiteParse joins it with the neighbouring column's text. The label
 # and opening words still agree with the HTML caption, so the binding must hold;
 # different text under the same label, and two agreeing candidates, must not (#1269).
-WRAPPED_HTML = "Comparison with state-of-the-art models. MemFeed performance of each method."
+WRAPPED_HTML = "Comparison with strong baselines on synthetic retrieval. Quality scores of each method."
 
 
 @pytest.mark.parametrize("pdf_line", [
-    "Table 2. Comparison with state-of-the-art models. Mem-",
-    "Table 2. Comparison with state-of- the-art models. MemFeed",
-    "Table 2. Comparison with state-of-the-art mod- soning core, successfully enabling",
+    "Table 2. Comparison with strong base-",
+    "Table 2. Comparison with strong base- lines on",
+    "Table 2. Comparison with strong baselines on syn- other column text continues here",
 ])
 def test_wrapped_or_column_merged_first_line_binds(helpers, pdf_line):
     _, inventory = helpers
@@ -498,7 +498,7 @@ def test_wrapped_caption_verifies_end_to_end_and_duplicates_stay_ambiguous(helpe
     receipt = json.loads(args.html_receipt.read_text())
     receipt.update(sha256=digest(args.html), bytes=args.html.stat().st_size)
     args.html_receipt.write_text(json.dumps(receipt))
-    wrapped = "Figure S7: Comparison with state-of-the-art models. Mem-"
+    wrapped = "Figure S7: Comparison with strong base-"
     _rewrite_extraction(args, text_items=[text_item(wrapped)])
     result = source.run(args)
     assert result["verification_status"] == "verified", result["inspection_candidates"]

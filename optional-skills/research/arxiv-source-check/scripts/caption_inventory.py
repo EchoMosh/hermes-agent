@@ -43,6 +43,17 @@ def norm(s):
     s=unicodedata.normalize('NFKD',s).casefold().replace('ﬁ','fi').replace('ﬂ','fl')
     return re.sub(r'[^a-z0-9]','',s)
 def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+# A two-column PDF can end a caption's first line early (often mid-word at a hyphen)
+# or LiteParse can join it with the neighbouring column, so the first six HTML words
+# may never appear on that line. A shared opening of this many normalized characters
+# under the same label is still one source identity; shorter captions must appear whole.
+MIN_SHARED_OPENING=20
+def caption_text_agrees(html_text,pdf_prefix):
+    words=html_text.split();head=norm(' '.join(words[:6]));html=norm(html_text);pdf=norm(pdf_prefix)
+    if not html or not pdf:return False
+    if head and pdf.startswith(head):return True
+    shared=next((i for i,(a,b) in enumerate(zip(html,pdf)) if a!=b),min(len(html),len(pdf)))
+    return shared>=min(MIN_SHARED_OPENING,len(html))
 LABEL=re.compile(r'^(Figure|Fig\.?|Table)\s+([A-Za-z0-9]+(?:[.\-][A-Za-z0-9]+)*)\s*[:.]?\s*',re.I)
 PDF_LABEL=re.compile(r'^(Figure|Fig\.?|Table)\s+([A-Za-z0-9]+(?:[.\-][A-Za-z0-9]+)*)\s*[:.]\s*(.*)$',re.I)
 
@@ -152,9 +163,9 @@ def analyze(html_path,lit_path,pdf_path,lit_source_path,source):
              **observed_page_head(lit))
     captions,bounds,ignored,warnings=parse_html(h);candidates=pdf_candidates(lit);matched=set()
     for cap in captions:
-        words=cap['caption_text'].split();prefix=norm(' '.join(words[:6]));hits=[]
+        words=cap['caption_text'].split();hits=[]
         for i,c in enumerate(candidates):
-            if c['identity']==cap['identity'] and prefix and norm(c['prefix']).startswith(prefix):hits.append((i,c))
+            if c['identity']==cap['identity'] and caption_text_agrees(cap['caption_text'],c['prefix']):hits.append((i,c))
         cap['pdf_matches']=[c for _,c in hits];cap['pdf_match_count']=len(hits)
         # Binding records what the PDF showed; verification adds the provenance gate.
         cap['binding']='matched' if len(hits)==1 else ('ambiguous' if len(hits)>1 else 'unmatched')
@@ -189,4 +200,4 @@ def analyze(html_path,lit_path,pdf_path,lit_source_path,source):
     counts={region:dict(Counter(c['kind'] for c in captions if c['region']==region)) for region in ('main','appendix')}
     for region in counts:
         for kind in ('figure','table'):counts[region].setdefault(kind,0)
-    return {'schema':'structured-caption-inventory-v1','pin':pin,'source':source,'pdf_provenance':prov,'counts':counts,'boundaries':bounds,'caption_identities':captions,'ignored':ignored,'provenance_issues':issues,'provenance_evidence':issue_evidence,'conversion_warnings':warnings,'unverified_source_identities':unverified,'unmatched_pdf_candidates':unmatched,'excluded_pdf_body_references':refs,'accepted_counts':counts if not (issues or warnings or unverified or unmatched) else None,'status':'verified' if not (issues or warnings or unverified or unmatched) else 'unverified','limitations':['PDF candidates require caption label punctuation plus matching source prefix; labels alone never verify identity.','HTML conversion completeness is only accepted when every source identity binds once and every PDF caption candidate is accounted for.']}
+    return {'schema':'structured-caption-inventory-v1','pin':pin,'source':source,'pdf_provenance':prov,'counts':counts,'boundaries':bounds,'caption_identities':captions,'ignored':ignored,'provenance_issues':issues,'provenance_evidence':issue_evidence,'conversion_warnings':warnings,'unverified_source_identities':unverified,'unmatched_pdf_candidates':unmatched,'excluded_pdf_body_references':refs,'accepted_counts':counts if not (issues or warnings or unverified or unmatched) else None,'status':'verified' if not (issues or warnings or unverified or unmatched) else 'unverified','limitations':['PDF candidates require caption label punctuation plus a matching source opening (the first six words, or at least 20 shared normalized characters when the PDF line wraps or meets another column); labels alone never verify identity.','HTML conversion completeness is only accepted when every source identity binds once and every PDF caption candidate is accounted for.']}

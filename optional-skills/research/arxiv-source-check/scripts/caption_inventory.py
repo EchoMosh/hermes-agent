@@ -77,6 +77,17 @@ def parse_html(text):
             # p fallback must be a short standalone source container, not body mention.
             owner=next((a for a in n.ancestors() if a.tag in structural or 'ltx_document' in a.classes),scope)
             boundaries.append({'order':n.order,'id':n.attrs.get('id'),'method':'standalone_source_heading','heading':t,'scope_order':owner.order,'scope_end':max(x.order for x in owner.walk())})
+    # The marker that starts an appendix region can be a title banner (for example a
+    # conference kit's "Supplementary Material" subtitle, a styled paragraph), not a
+    # heading. Record the first sectional heading (h1-h6) of the region separately.
+    headings={'h1','h2','h3','h4','h5','h6'}
+    for b in boundaries:
+        marker=next((x for x in nodes if x.order==b['order']),None)
+        if b['method']=='native_appendix_ancestor' or (marker is not None and marker.tag in headings):
+            b['first_heading']=b['heading']
+        else:
+            nxt=next((x for x in nodes if x.tag in headings and b['order']<x.order<=b['scope_end'] and clean(x.text())),None)
+            b['first_heading']=clean(nxt.text()) if nxt else ''
     captions=[];ignored=[];seen=set()
     for n in nodes:
         if n.tag not in {'figcaption','caption'} and 'ltx_caption' not in n.classes:continue

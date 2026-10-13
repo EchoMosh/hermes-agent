@@ -5,6 +5,7 @@ Offline inventory is the default when explicit files are supplied. No expected
 counts or experiment answers are accepted. --review-live is the only paid path.
 """
 import argparse
+import html as html_lib
 import base64
 import hashlib
 import json
@@ -193,18 +194,50 @@ def revision_history(args, outdir):
     if page is None:
         page=outdir/(base.replace('/','-')+'.abs.html')
         if not page.exists():
-            if args.offline:return None,'abstract_page_not_supplied_offline'
+            if args.offline:return None,'abstract_page_not_supplied_offline',None
             try:acquire('https://arxiv.org/abs/'+base,page,5_000_000)
-            except (ValueError,OSError):return None,'abstract_page_unavailable'
-    text=' '.join(re.sub(r'<[^>]+>',' ',Path(page).read_text(encoding='utf-8',errors='replace')).split())
+            except (ValueError,OSError):return None,'abstract_page_unavailable',None
+    raw=Path(page).read_text(encoding='utf-8',errors='replace')
+    text=' '.join(re.sub(r'<[^>]+>',' ',raw).split())
     start=text.find('Submission history')
     rows=[{'version':'v'+n,'submitted_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.strptime(d,'%d %b %Y %H:%M:%S'))}
           for n,d in HISTORY_ROW.findall(text[start:] if start>=0 else '')]
-    return (rows,None) if rows else (None,'submission_history_not_found')
+    authors=current_authors(raw,rows)
+    return ((rows,None) if rows else (None,'submission_history_not_found'))+(authors,)
+
+def split_outside_parens(text):
+    parts,depth,cur=[],0,''
+    for ch in text:
+        depth+=(ch=='(')-(ch==')')
+        if ch==',' and depth<=0:parts.append(cur);cur=''
+        else:cur+=ch
+    return parts+[cur]
+
+def current_authors(raw,rows):
+    """Author names shown on the unversioned abstract page, as whole comma-separated segments.
+
+    Returns {'names', 'count', 'issue', 'source'}; names is None when the list cannot be trusted as current."""
+    source={'sha256':hashlib.sha256(raw.encode('utf-8','replace')).hexdigest()}
+    shown=re.search(r'<strong>\s*\[v(\d+)\]\s*</strong>',raw)
+    if rows and shown and int(shown.group(1))!=max(int(r['version'][1:]) for r in rows):
+        return {'names':None,'count':0,'issue':'abstract_page_shows_v%s_not_newest'%shown.group(1),'source':source}
+    block=re.search(r'<div class="authors">(.*?)</div>',raw,re.S)
+    if not block:return {'names':None,'count':0,'issue':'authors_block_not_found','source':source}
+    text=html_lib.unescape(' '.join(re.sub(r'<[^>]+>',' ',block.group(1)).split()))
+    text=re.sub(r'^\s*Authors?:\s*','',text)
+    names=[' '.join(re.sub(r'\s*\(\s*',' (',re.sub(r'\s*\)\s*',') ',s)).split()) for s in split_outside_parens(text)]
+    names=[n for n in names if n]
+    return {'names':names or None,'count':len(names),'issue':None if names else 'authors_block_empty','source':source}
 
 def revision_summary(result):
     rows=result.get('revision_history') or []
     return ', '.join(r['version']+' '+r['submitted_utc'][:10] for r in rows) or None
+
+def author_summary(result):
+    """Fixed-size summary: up to 5 names, else the first 3 and the total (full list in inventory.json)."""
+    names=result.get('current_record_authors') or []
+    if not names:return None
+    return '; '.join(names) if len(names)<=5 else '; '.join(names[:3])+'; ... (%d total; full list in inventory.json)'%len(names)
 
 def finish(result):
     result['verification_status']='needs_inspection' if result['inspection_candidates'] else 'verified'
@@ -257,9 +290,12 @@ def run(args):
             'candidate_counts':total_counts(evidence['counts']),'inspection_candidates':[],
             'excluded_pdf_body_references':evidence['excluded_pdf_body_references'],'ignored_source_objects':evidence['ignored'],
             'expected_counts_supplied':False,'limitations':evidence['limitations']}
-    history,issue=revision_history(args,outdir)
+    history,issue,authors=revision_history(args,outdir)
     pinned='v'+args.pin.rsplit('v',1)[1]
-    result.update({'pinned_revision':pinned,'revision_history':history,'revision_history_issue':issue,'revision_note':None})
+    result.update({'pinned_revision':pinned,'revision_history':history,'revision_history_issue':issue,'revision_note':None,
+                   'current_record_authors':(authors or {}).get('names'),'current_record_author_count':(authors or {}).get('count',0),
+                   'current_record_authors_issue':(authors or {}).get('issue') if authors else (issue or 'abstract_page_not_read'),
+                   'current_record_source':(authors or {}).get('source')})
     if history and len(history)>1:
         result['revision_note']=('Counts describe %s only. Revisions: %s. A request about a date is about the newest '
                                  'revision dated on or before it.' % (pinned,revision_summary(result)))
@@ -311,7 +347,8 @@ def main():
         args.output_dir.mkdir(parents=True,exist_ok=True);save(args.output_dir/'inventory.json',result)
     print(json.dumps({'pin':result['pin'],'verification_status':result['verification_status'],'accepted_counts':result['accepted_counts'],
                       'inspection_candidate_count':len(result['inspection_candidates']),'pinned_revision':result.get('pinned_revision'),
-                      'revisions':revision_summary(result),'evidence_path':str((args.output_dir/'inventory.json').resolve())}))
+                      'evidence_path':str((args.output_dir/'inventory.json').resolve()),'revisions':revision_summary(result),
+                      'current_record_authors':author_summary(result),'current_record_authors_issue':result.get('current_record_authors_issue')}))
     return 0 if result['verification_status']=='verified' else 2
 
 if __name__=='__main__':sys.exit(main())

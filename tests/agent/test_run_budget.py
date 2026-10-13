@@ -21,6 +21,10 @@ Covers:
 3. Normalization of the config/CLI value
    (``agent.agent_init._normalize_run_budget_seconds``): dormant on
    null/invalid/non-positive input.
+
+4. Turn-clock stamping in ``agent.turn_context.build_turn_context``: the clock
+   is per RUN, not per turn — a genuine user turn restarts it, a synthetic turn
+   (typed row or canonical synthetic prefix) keeps it, no budget => None.
 """
 
 from __future__ import annotations
@@ -359,3 +363,151 @@ def test_wrapup_lands_in_the_persisted_row_via_pre_flush_hook(monkeypatch, tmp_p
         session_db.close()
 
 # ── turn clock stamping ────────────────────────────────────────────────────
+
+AUTO_CONTINUE_NOTE = "[System note: Your previous turn was interrupted mid-run …]\n\nkeep going"
+
+
+@pytest.fixture()
+def turn_agent(tmp_path, monkeypatch):
+    """Real AIAgent + SessionDB so build_turn_context runs its full prologue."""
+    from hermes_state import SessionDB
+
+    db = SessionDB(db_path=tmp_path / "turns.db")
+    sid = "sess-run-budget"
+    db.create_session(session_id=sid, source="cli", model="gpt-5.5")
+    agent = _make_agent(
+        tmp_path, monkeypatch, session_db=db, session_id=sid, run_budget_seconds=900,
+    )
+    agent._session_db_created = True
+    agent._cached_system_prompt = "SYSTEM"
+    agent._skip_mcp_refresh = True
+    try:
+        yield agent
+    finally:
+        db.close()
+
+
+def _turn(agent, user_message="do the task", **overrides):
+    import types
+    from unittest.mock import patch
+    from agent.turn_context import build_turn_context
+
+    kwargs = dict(
+        agent=agent, user_message=user_message, system_message=None,
+        conversation_history=None, task_id=None, stream_callback=None,
+        persist_user_message=None,
+        restore_or_build_system_prompt=lambda *a, **k: None,
+        install_safe_stdio=lambda: None, sanitize_surrogates=lambda s: s,
+        summarize_user_message_for_log=lambda s: s,
+        set_session_context=lambda _sid: None, set_current_write_origin=lambda _o: None,
+        ra=lambda: types.SimpleNamespace(_set_interrupt=lambda *a, **k: None),
+    )
+    kwargs.update(overrides)
+    with patch("agent.auxiliary_client.set_runtime_main", lambda *a, **k: None):
+        return build_turn_context(**kwargs)
+
+
+def test_user_turn_stamps_fresh_clock(turn_agent):
+    turn_agent._run_budget_started_at = time.time() - 300
+    before = time.time()
+    _turn(turn_agent, "do the task")
+    assert turn_agent._run_budget_started_at >= before
+
+
+def test_synthetic_turn_via_display_kind_keeps_clock(turn_agent):
+    carried = time.time() - 300
+    turn_agent._run_budget_started_at = carried
+    _turn(turn_agent, AUTO_CONTINUE_NOTE, persist_user_display_kind="auto_continue")
+    assert turn_agent._run_budget_started_at == carried
+
+
+def test_cli_timeline_notification_turn_keeps_clock(turn_agent):
+    """A background helper result staged by the CLI carries its display_kind on the
+    pending row, not the persist_user_display_kind argument."""
+    from agent.message_metadata import stamp_message_timestamp
+
+    carried = time.time() - 300
+    turn_agent._run_budget_started_at = carried
+    text = "Background job 42 finished: 3 files written."
+    turn_agent._pending_cli_user_message = stamp_message_timestamp(
+        {"role": "user", "content": text, "display_kind": "async_delegation_complete"}
+    )
+    _turn(turn_agent, text)
+    assert turn_agent._run_budget_started_at == carried
+
+
+def _goal_continuation():
+    from hermes_cli.goals import CONTINUATION_PROMPT_TEMPLATE
+    return CONTINUATION_PROMPT_TEMPLATE.format(goal="ship the report")
+
+
+def _loop_wakeup():
+    from hermes_cli.loops import WAKEUP_PROMPT_TEMPLATE
+    return WAKEUP_PROMPT_TEMPLATE.format(tick=3, cadence=" (every 5m)", prompt="check CI")
+
+
+@pytest.mark.parametrize("prompt", [_goal_continuation, _loop_wakeup])
+def test_synthetic_prefix_turn_keeps_clock(turn_agent, prompt):
+    """CLI goal continuations and loop wakeups arrive as bare prompts (no display_kind);
+    the canonical synthetic prefix is what identifies them."""
+    carried = time.time() - 300
+    turn_agent._run_budget_started_at = carried
+    _turn(turn_agent, prompt())
+    assert turn_agent._run_budget_started_at == carried
+
+
+def test_synthetic_first_turn_stamps_now(turn_agent):
+    turn_agent._run_budget_started_at = None
+    before = time.time()
+    _turn(turn_agent, _goal_continuation())
+    assert turn_agent._run_budget_started_at is not None
+    assert turn_agent._run_budget_started_at >= before
+
+
+def test_user_turn_after_synthetic_turns_restarts_clock(turn_agent):
+    carried = time.time() - 300
+    turn_agent._run_budget_started_at = carried
+    _turn(turn_agent, _goal_continuation())
+    _turn(turn_agent, AUTO_CONTINUE_NOTE, persist_user_display_kind="auto_continue")
+    assert turn_agent._run_budget_started_at == carried
+    before = time.time()
+    _turn(turn_agent, "new instructions from the human")
+    assert turn_agent._run_budget_started_at >= before
+
+
+def test_no_budget_leaves_clock_unset(turn_agent):
+    turn_agent.run_budget_seconds = None
+    for user_message, kind in (
+        ("do the task", None),
+        (AUTO_CONTINUE_NOTE, "auto_continue"),
+        (_goal_continuation(), None),
+    ):
+        turn_agent._run_budget_started_at = time.time() - 300  # stale stamp must not survive
+        _turn(turn_agent, user_message, persist_user_display_kind=kind)
+        assert turn_agent._run_budget_started_at is None
+
+
+def test_wrapup_fires_in_synthetic_turn_with_carried_clock(turn_agent):
+    """Clock per run, notice per turn: a synthetic turn past 80% re-arms the latch and
+    injects the notice on its first tool result."""
+    from agent.conversation_loop import RUN_BUDGET_WRAPUP_NOTICE, _maybe_inject_run_budget_wrapup
+
+    turn_agent._run_budget_started_at = time.time() - 800  # 89% of 900s
+    turn_agent._run_budget_wrapup_injected = True  # latched by the previous turn
+    _turn(turn_agent, AUTO_CONTINUE_NOTE, persist_user_display_kind="auto_continue")
+    assert turn_agent._run_budget_wrapup_injected is False
+    messages = _tool_messages()
+    assert _maybe_inject_run_budget_wrapup(turn_agent, messages) is True
+    assert RUN_BUDGET_WRAPUP_NOTICE in messages[-1]["content"]
+    assert _maybe_inject_run_budget_wrapup(turn_agent, messages) is False
+
+
+def test_remaining_budget_shrinks_across_synthetic_turn(turn_agent):
+    """cap_to_run_budget reads the carried stamp: 100s already elapsed caps at 400s,
+    where a restarted clock would allow 450s."""
+    from agent.chat_completion_helpers import cap_to_run_budget
+
+    turn_agent._run_budget_started_at = time.time() - 100
+    _turn(turn_agent, _goal_continuation())
+    assert cap_to_run_budget(turn_agent, 10_000) < 401 < 450
+

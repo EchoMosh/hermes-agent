@@ -180,6 +180,32 @@ def apply_reviews(result, inventory, receipt):
     result['candidate_counts']=total_counts(counts)
     finish(result)
 
+HISTORY_ROW = re.compile(r'\[v(\d+)\]\s+[A-Z][a-z]{2}, (\d{1,2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2}) UTC')
+
+def revision_history(args, outdir):
+    """Every revision's submission date from the unversioned abstract page.
+
+    Information only: the helper does not know which date a request is about,
+    so a missing or unreadable page never changes verification.
+    """
+    base=args.pin.rsplit('v',1)[0]
+    page=getattr(args,'abs_html',None)
+    if page is None:
+        page=outdir/(base.replace('/','-')+'.abs.html')
+        if not page.exists():
+            if args.offline:return None,'abstract_page_not_supplied_offline'
+            try:acquire('https://arxiv.org/abs/'+base,page,5_000_000)
+            except (ValueError,OSError):return None,'abstract_page_unavailable'
+    text=' '.join(re.sub(r'<[^>]+>',' ',Path(page).read_text(encoding='utf-8',errors='replace')).split())
+    start=text.find('Submission history')
+    rows=[{'version':'v'+n,'submitted_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.strptime(d,'%d %b %Y %H:%M:%S'))}
+          for n,d in HISTORY_ROW.findall(text[start:] if start>=0 else '')]
+    return (rows,None) if rows else (None,'submission_history_not_found')
+
+def revision_summary(result):
+    rows=result.get('revision_history') or []
+    return ', '.join(r['version']+' '+r['submitted_utc'][:10] for r in rows) or None
+
 def finish(result):
     result['verification_status']='needs_inspection' if result['inspection_candidates'] else 'verified'
     result['status']=result['verification_status']
@@ -231,6 +257,12 @@ def run(args):
             'candidate_counts':total_counts(evidence['counts']),'inspection_candidates':[],
             'excluded_pdf_body_references':evidence['excluded_pdf_body_references'],'ignored_source_objects':evidence['ignored'],
             'expected_counts_supplied':False,'limitations':evidence['limitations']}
+    history,issue=revision_history(args,outdir)
+    pinned='v'+args.pin.rsplit('v',1)[1]
+    result.update({'pinned_revision':pinned,'revision_history':history,'revision_history_issue':issue,'revision_note':None})
+    if history and len(history)>1:
+        result['revision_note']=('Counts describe %s only. Revisions: %s. A request about a date is about the newest '
+                                 'revision dated on or before it.' % (pinned,revision_summary(result)))
     rows=result['inspection_candidates']
     rows.extend({'issue':'source_provenance','detail':x,'evidence':evidence['provenance_evidence'].get(x)} for x in evidence['provenance_issues'])
     rows.extend({'issue':'html_conversion_or_caption','detail':x} for x in evidence['conversion_warnings'])
@@ -256,7 +288,7 @@ def run(args):
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--pin',required=True);ap.add_argument('--output-dir',type=Path,required=True)
-    for flag in ('html','pdf','lit-json','html-receipt','lit-receipt','reviews'):ap.add_argument('--'+flag,type=Path)
+    for flag in ('html','pdf','lit-json','html-receipt','lit-receipt','reviews','abs-html'):ap.add_argument('--'+flag,type=Path)
     ap.add_argument('--offline',action='store_true');ap.add_argument('--lit-bin',default=os.environ.get('HERMES_LIT_BIN','lit'));ap.add_argument('--run-id')
     ap.add_argument('--review-live',action='store_true',help='Explicitly permit bounded paid focused image review with existing OPENROUTER_API_KEY')
     ap.add_argument('--review-model',default=os.environ.get('HERMES_SOURCE_REVIEW_MODEL'),help='Explicit model for optional paid review; no default paid model')
@@ -278,7 +310,8 @@ def main():
                 'inspection_candidates':[{'issue':'source_workflow_failed','detail':detail}],'expected_counts_supplied':False}
         args.output_dir.mkdir(parents=True,exist_ok=True);save(args.output_dir/'inventory.json',result)
     print(json.dumps({'pin':result['pin'],'verification_status':result['verification_status'],'accepted_counts':result['accepted_counts'],
-                      'inspection_candidate_count':len(result['inspection_candidates']),'evidence_path':str((args.output_dir/'inventory.json').resolve())}))
+                      'inspection_candidate_count':len(result['inspection_candidates']),'pinned_revision':result.get('pinned_revision'),
+                      'revisions':revision_summary(result),'evidence_path':str((args.output_dir/'inventory.json').resolve())}))
     return 0 if result['verification_status']=='verified' else 2
 
 if __name__=='__main__':sys.exit(main())

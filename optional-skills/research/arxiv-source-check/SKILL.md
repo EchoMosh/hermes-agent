@@ -91,6 +91,7 @@ python3 /absolute/skill/path/scripts/source_check.py \
 | Exit `2` | Needs inspection; `accepted_counts` is null. |
 | `inspection_candidates[].evidence` | `source_provenance` rows: expected versus observed values behind the failed check. |
 | `tables[]` | Each HTML table's rows with the caption from the same element (`identity`, `caption_text`, `rows`). Read table values here: in flattened page text a caption can sit next to a different table. |
+| `pinned_revision`, `revision_history`, `revision_note` | The pinned revision and every revision's submission date from the abstract page (also in the summary line as `revisions`). Counts describe the pinned revision only. Information only: a missing page sets `revision_history_issue` and never changes verification. |
 | `first_appendix_heading` | First sectional heading (h1-h6) of the appendix region, verbatim; null when there is no appendix. A title banner such as a supplementary-material subtitle starts the region but is not a heading. |
 | `inspection_candidates[].binding` | `html_pdf_binding` rows: `ambiguous` or `unmatched`, with `pdf_match_count`; matched captions emit no row. |
 
@@ -103,7 +104,15 @@ Rehashing arbitrary JSON does not prove which PDF produced it.
 ## Procedure
 
 1. Discover and pin the paper using the `arxiv` skill or native `web_search` /
-   `web_extract`. Choose the version from original source metadata.
+   `web_extract`. Pin the revision the request is about. Feed and API IDs and
+   unversioned URLs name the newest revision. When the request names a date or
+   period (submitted on, as of, during), pin the newest revision dated on or
+   before it: the abstract page's Submission history lists each revision's
+   date, and the API's `published` and `updated` fields give the first and
+   newest dates. With no date in the request, pin the newest revision. Record
+   the pinned revision's date with its evidence. The helper's summary line
+   lists every revision's date beside the pinned one; re-pin when the pinned
+   revision is not the one the request is about.
 2. Run the bundled helper through `terminal`. Read `inventory.json` with
    `read_file`; keep originals, extraction, and receipts together.
 3. Accept counts only when `verification_status` is `verified` and

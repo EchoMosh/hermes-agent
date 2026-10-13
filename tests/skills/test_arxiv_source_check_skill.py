@@ -453,3 +453,57 @@ def test_url_mismatch_evidence_shows_expected_and_observed(helpers, originals):
         "issue": "source_provenance", "detail": "source_url_pin_mismatch", "evidence": evidence,
     }]
     assert result["native_caption_identities"][0]["verification"] == "blocked_by_provenance"
+
+
+# A two-column PDF often breaks a caption's first line early (a hyphenated word or
+# a short line) or LiteParse joins it with the neighbouring column's text. The label
+# and opening words still agree with the HTML caption, so the binding must hold;
+# different text under the same label, and two agreeing candidates, must not (#1269).
+WRAPPED_HTML = "Comparison with state-of-the-art models. MemFeed performance of each method."
+
+
+@pytest.mark.parametrize("pdf_line", [
+    "Table 2. Comparison with state-of-the-art models. Mem-",
+    "Table 2. Comparison with state-of- the-art models. MemFeed",
+    "Table 2. Comparison with state-of-the-art mod- soning core, successfully enabling",
+])
+def test_wrapped_or_column_merged_first_line_binds(helpers, pdf_line):
+    _, inventory = helpers
+    candidate = inventory.pdf_candidates({"pages": [{"page": 6, "text_items": [text_item(pdf_line)]}]})[0]
+    assert inventory.caption_text_agrees(WRAPPED_HTML, candidate["prefix"])
+
+
+@pytest.mark.parametrize("pdf_line", [
+    "Table 2. We can draw the following observations from the results",
+    "Table 2. Comparison",
+    "Table 2.",
+])
+def test_unrelated_or_too_short_opening_does_not_bind(helpers, pdf_line):
+    _, inventory = helpers
+    candidates = inventory.pdf_candidates({"pages": [{"page": 6, "text_items": [text_item(pdf_line)]}]})
+    assert not any(inventory.caption_text_agrees(WRAPPED_HTML, c["prefix"]) for c in candidates)
+
+
+def test_short_caption_must_appear_whole(helpers):
+    _, inventory = helpers
+    assert inventory.caption_text_agrees("Hyperparameters.", "Hyperparameters. used for training")
+    assert not inventory.caption_text_agrees("Hyperparameters used.", "Hyperparam-")
+
+
+def test_wrapped_caption_verifies_end_to_end_and_duplicates_stay_ambiguous(helpers, originals):
+    source, _ = helpers
+    args = originals()
+    html = args.html.read_text().replace("Synthetic source caption words here.", WRAPPED_HTML)
+    args.html.write_text(html)
+    receipt = json.loads(args.html_receipt.read_text())
+    receipt.update(sha256=digest(args.html), bytes=args.html.stat().st_size)
+    args.html_receipt.write_text(json.dumps(receipt))
+    wrapped = "Figure S7: Comparison with state-of-the-art models. Mem-"
+    _rewrite_extraction(args, text_items=[text_item(wrapped)])
+    result = source.run(args)
+    assert result["verification_status"] == "verified", result["inspection_candidates"]
+    assert result["native_caption_identities"][0]["binding"] == "matched"
+    _rewrite_extraction(args, text_items=[text_item(wrapped), text_item(wrapped, y=300)])
+    result = source.run(args)
+    assert result["verification_status"] == "needs_inspection"
+    assert result["native_caption_identities"][0]["binding"] == "ambiguous"

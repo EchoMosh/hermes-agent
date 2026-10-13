@@ -89,6 +89,8 @@ python3 /absolute/skill/path/scripts/source_check.py \
 | `--reviews PATH` | Previously saved source-bound focused-review receipt. |
 | Exit `0` | Verified; `accepted_counts` contains main/appendix/total counts. |
 | Exit `2` | Needs inspection; `accepted_counts` is null. |
+| `inspection_candidates[].evidence` | `source_provenance` rows: expected versus observed values behind the failed check. |
+| `inspection_candidates[].binding` | `html_pdf_binding` rows: `ambiguous` or `unmatched`, with `pdf_match_count`; matched captions emit no row. |
 
 An HTML acquisition receipt contains `pin`, original versioned `url`, `sha256`,
 and `bytes`; a receipt list must contain exactly one entry for the pin. A
@@ -106,7 +108,12 @@ Rehashing arbitrary JSON does not prove which PDF produced it.
    `accepted_counts` is present. Cite the versioned original URL and retain the
    evidence path. `candidate_counts` are observations while anything is unresolved.
 4. For `needs_inspection`, inspect `inspection_candidates`, including the exact
-   source page, bounding box, literal text, and issue code. Repair provenance,
+   source page, bounding box, literal text, and issue code. `source_provenance`
+   rows carry `evidence` (expected versus observed values; the watermark check
+   includes the literal page-1 text), and `html_pdf_binding` rows name only
+   captions whose `binding` is `ambiguous` or `unmatched`. When every caption
+   reports `binding: matched` with `verification: blocked_by_provenance`, repair
+   the provenance predicate from its evidence first. Repair provenance,
    conversion, or HTML/PDF bindings before attempting focused visual review.
 5. When text and DOM evidence cannot resolve caption versus body reference,
    inspect the original candidate page. For explicitly authorized automated

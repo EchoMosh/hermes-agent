@@ -375,3 +375,81 @@ def test_spatial_watermark_preserves_exact_version(helpers, originals, watermark
     result = source.run(args)
     assert (result['verification_status'] == 'verified') is verified
     assert (result['accepted_counts'] is not None) is verified
+
+
+def _rewrite_extraction(args, **page):
+    """Change page 1 of the synthetic extraction and re-bind its receipt, so the
+    mutation rather than a stale hash is what the run observes."""
+    data = json.loads(args.lit_json.read_text())
+    data["pages"][0].update(page)
+    args.lit_json.write_text(json.dumps(data))
+    receipt = json.loads(args.lit_receipt.read_text())
+    receipt["extraction_sha256"] = digest(args.lit_json)
+    args.lit_receipt.write_text(json.dumps(receipt))
+
+
+def test_watermark_mismatch_shows_observed_text_without_binding_rows(originals):
+    args = originals()
+    watermark = "arX iv:9999.00001v3 [cs.CV] 15 Feb 2026"
+    _rewrite_extraction(args, text=watermark)
+    proc = subprocess.run(
+        [sys.executable, *_cli_args(args)], capture_output=True, text=True,
+        env={"PATH": os.environ.get("PATH", "")}, timeout=20,
+    )
+    assert proc.returncode == 2, proc.stderr
+    result = json.loads((args.output_dir / "inventory.json").read_text())
+    assert result["verification_status"] == "needs_inspection"
+    assert result["accepted_counts"] is None
+    rows = result["inspection_candidates"]
+    assert [(row["issue"], row["detail"]) for row in rows] == [
+        ("source_provenance", "pdf_version_watermark_mismatch"),
+    ]
+    evidence = rows[0]["evidence"]
+    assert isinstance(evidence.pop("predicate"), str)
+    assert evidence == {
+        "expected": "arXiv:9999.00001v2",
+        "observed_first_page_head": watermark,
+        "observed_folded_head": "arXiv:9999.00001v3[cs.CV]15Feb2026",
+    }
+    captions = result["native_caption_identities"]
+    assert [c["identity"] for c in captions] == ["figure:S7"]
+    assert all(
+        c["binding"] == "matched" and c["pdf_match_count"] == 1
+        and c["verification"] == "blocked_by_provenance" for c in captions
+    )
+
+
+def test_unbound_caption_reports_binding_without_provenance_rows(helpers, originals):
+    source, _ = helpers
+    args = originals()
+    _rewrite_extraction(args, text_items=[
+        text_item("Figure S7: Different original caption words."),
+    ])
+    result = source.run(args)
+    assert result["verification_status"] == "needs_inspection"
+    assert result["accepted_counts"] is None
+    rows = result["inspection_candidates"]
+    assert not [row for row in rows if row["issue"] == "source_provenance"]
+    assert [row for row in rows if row["issue"] == "html_pdf_binding"] == [{
+        "issue": "html_pdf_binding", "identity": "figure:S7", "binding": "unmatched",
+        "pdf_match_count": 0, "source_prefix_evidence": "Synthetic source caption words here.",
+    }]
+    assert result["native_caption_identities"][0]["verification"] == "unmatched"
+
+
+def test_url_mismatch_evidence_shows_expected_and_observed(helpers, originals):
+    source, inventory = helpers
+    args = originals()
+    receipt = json.loads(args.html_receipt.read_text())
+    receipt["url"] = "https://arxiv.org/html/9999.00001v1"
+    args.html_receipt.write_text(json.dumps(receipt))
+    evidence = {"expected": "https://arxiv.org/html/9999.00001v2",
+                "observed": "https://arxiv.org/html/9999.00001v1"}
+    analysis = inventory.analyze(args.html, args.lit_json, args.pdf, args.lit_receipt, receipt)
+    assert analysis["provenance_evidence"] == {"source_url_pin_mismatch": evidence}
+    result = source.run(args)
+    assert result["accepted_counts"] is None
+    assert result["inspection_candidates"] == [{
+        "issue": "source_provenance", "detail": "source_url_pin_mismatch", "evidence": evidence,
+    }]
+    assert result["native_caption_identities"][0]["verification"] == "blocked_by_provenance"

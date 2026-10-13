@@ -441,15 +441,27 @@ def _goal_continuation():
     return CONTINUATION_PROMPT_TEMPLATE.format(goal="ship the report")
 
 
+def _kanban_continuation():
+    from hermes_cli.goals import KANBAN_GOAL_CONTINUATION_TEMPLATE
+    return KANBAN_GOAL_CONTINUATION_TEMPLATE.format(reason="tests still red")
+
+
+def _kanban_finalize():
+    from hermes_cli.goals import KANBAN_GOAL_FINALIZE_TEMPLATE
+    return KANBAN_GOAL_FINALIZE_TEMPLATE.format(reason="diff landed, card still open")
+
+
 def _loop_wakeup():
     from hermes_cli.loops import WAKEUP_PROMPT_TEMPLATE
     return WAKEUP_PROMPT_TEMPLATE.format(tick=3, cadence=" (every 5m)", prompt="check CI")
 
 
-@pytest.mark.parametrize("prompt", [_goal_continuation, _loop_wakeup])
+@pytest.mark.parametrize(
+    "prompt", [_goal_continuation, _kanban_continuation, _kanban_finalize, _loop_wakeup]
+)
 def test_synthetic_prefix_turn_keeps_clock(turn_agent, prompt):
-    """CLI goal continuations and loop wakeups arrive as bare prompts (no display_kind);
-    the canonical synthetic prefix is what identifies them."""
+    """CLI goal continuations, kanban goal-mode judge nudges and loop wakeups arrive as bare
+    prompts (no display_kind); the canonical synthetic prefix is what identifies them."""
     carried = time.time() - 300
     turn_agent._run_budget_started_at = carried
     _turn(turn_agent, prompt())

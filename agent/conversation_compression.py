@@ -2244,10 +2244,12 @@ _SYNTHETIC_USER_PREFIXES = (
     "[System: Your previous response was truncated", "[System: The previous response was cut off",
     "[System: Your previous tool call", "[Your active task list was preserved across context compression]",
     "[IMPORTANT: Background process ",
-    # /goal continuations and /loop wakeups (hermes_cli.goals / hermes_cli.loops templates) are
-    # runtime-started turns too: the gateway types them via display_kind, but the CLI feeds the
-    # bare prompt, so the text prefix is the only signal shared by both surfaces.
-    "[Continuing toward your standing goal", "[/loop wakeup #",
+    # /goal continuations, kanban goal-mode judge nudges and /loop wakeups (hermes_cli.goals /
+    # hermes_cli.loops templates) are runtime-started turns too: the gateway types them via
+    # display_kind, but the CLI feeds the bare prompt, so the text prefix is the only signal
+    # shared by both surfaces.
+    "[Continuing toward your standing goal", "[Continuing toward this kanban task",
+    "[The work looks complete, but the task is still open]", "[/loop wakeup #",
 )
 
 

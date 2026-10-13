@@ -586,3 +586,84 @@ def test_panel_rows_roll_up_to_their_parent_table(helpers):
             + '</div><figcaption><span class="ltx_tag_table">Table 6:</span>Synthetic paneled table.</figcaption></figure></article>')
     tables = [c for c in inventory.parse_html(html)[0] if c["kind"] == "table"]
     assert [(c["identity"], c["rows"]) for c in tables] == [("table:6", [["Left", "0.3"], ["Right", "0.4"]])]
+
+
+def test_procedure_pins_the_revision_a_dated_request_is_about():
+    """A dated request is about the revision that existed on that date, not the newest one."""
+    text = (Path(__file__).resolve().parents[2] / "optional-skills" / "research"
+            / "arxiv-source-check" / "SKILL.md").read_text()
+    procedure = text.split("## Procedure", 1)[1]
+    step_one = " ".join(procedure.split("\n2. ", 1)[0].split())
+    assert "newest revision dated on or before" in step_one
+    assert "Submission history" in step_one
+    assert "`published`" in step_one and "`updated`" in step_one
+    assert "With no date in the request, pin the newest revision." in step_one
+    assert "Choose the version from original source metadata." not in step_one
+
+
+SYNTHETIC_ABSTRACT_PAGE = (
+    '<html><body><div class="submission-history"><h2>Submission history</h2>'
+    'From: Synthetic Author [<a href="/show-email/x">view email</a>]<br/>'
+    '<strong><a href="/abs/9999.00001v1">[v1]</a></strong> Mon, 10 Mar 2025 17:02:11 UTC (1,024 KB)<br/>'
+    '<strong>[v2]</strong> Sun, 1 Jun 2025 08:00:00 UTC (1,100 KB)<br/>'
+    '<strong><a href="/abs/9999.00001v3">[v3]</a></strong> Sun, 2 Nov 2025 09:15:40 UTC (1,200 KB)<br/>'
+    '</div></body></html>'
+)
+
+
+def test_revision_history_is_reported_beside_the_pinned_revision(helpers, originals, monkeypatch, capsys):
+    """Counts describe one revision; the output names every revision and its date."""
+    source, _ = helpers
+    args = originals()
+    page = args.output_dir.parent / "abstract.html"
+    page.write_text(SYNTHETIC_ABSTRACT_PAGE, encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _cli_args(args) + ["--abs-html", str(page)])
+    source.main()
+    summary = json.loads(capsys.readouterr().out)
+    result = json.loads((args.output_dir / "inventory.json").read_text())
+    assert result["pinned_revision"] == "v2"
+    assert result["revision_history"] == [
+        {"version": "v1", "submitted_utc": "2025-03-10T17:02:11Z"},
+        {"version": "v2", "submitted_utc": "2025-06-01T08:00:00Z"},
+        {"version": "v3", "submitted_utc": "2025-11-02T09:15:40Z"},
+    ]
+    assert result["revision_history_issue"] is None
+    assert "v2 only" in result["revision_note"]
+    assert summary["pinned_revision"] == "v2"
+    assert summary["revisions"] == "v1 2025-03-10, v2 2025-06-01, v3 2025-11-02"
+
+
+def test_missing_revision_history_never_changes_verification(helpers, originals, monkeypatch, capsys):
+    source, _ = helpers
+    args = originals()
+    monkeypatch.setattr(sys, "argv", _cli_args(args))
+    source.main()
+    result = json.loads((args.output_dir / "inventory.json").read_text())
+    assert result["verification_status"] == "verified"
+    assert result["revision_history"] is None
+    assert result["revision_history_issue"] == "abstract_page_not_supplied_offline"
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_online_run_reads_the_unversioned_abstract_page(helpers, originals, monkeypatch, fails):
+    source, _ = helpers
+    args = originals()
+    args.offline = False
+    args.abs_html = None
+    requested = []
+
+    def fake_acquire(url, target, max_bytes):
+        requested.append(url)
+        if fails:
+            raise OSError("synthetic network failure")
+        target.write_text(SYNTHETIC_ABSTRACT_PAGE, encoding="utf-8")
+
+    monkeypatch.setattr(source, "acquire", fake_acquire)
+    result = source.run(args)
+    assert requested == ["https://arxiv.org/abs/9999.00001"]
+    assert result["verification_status"] == "verified"
+    if fails:
+        assert result["revision_history"] is None
+        assert result["revision_history_issue"] == "abstract_page_unavailable"
+    else:
+        assert [r["version"] for r in result["revision_history"]] == ["v1", "v2", "v3"]

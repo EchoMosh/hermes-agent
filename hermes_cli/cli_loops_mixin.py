@@ -669,10 +669,10 @@ class CLILoopsMixin:
     def _maybe_continue_goal_after_turn(self) -> None:
         """Post-turn hook: judge the goal and maybe re-queue a continuation. A real user
         message already queued preempts judging (re-judged after their turn); queued helper
-        results only defer the judge, the gates still run. Ctrl+C AUTO-PAUSES instead of
-        judging — the judge on partial output nearly always says "continue" and would
-        re-queue exactly what was cancelled; pausing is recoverable via ``/goal resume``.
-        Empty-response skip mirrors ``gateway/run.py``."""
+        results and process notifications only defer the judge, the gates still run. Ctrl+C
+        AUTO-PAUSES instead of judging — the judge on partial output nearly always says
+        "continue" and would re-queue exactly what was cancelled; pausing is recoverable via
+        ``/goal resume``. Empty-response skip mirrors ``gateway/run.py``."""
         from cli import _DIM, _RST, _cprint, _looks_like_slash_command
         mgr = self._get_goal_manager()
         if mgr is None or not mgr.is_active():
@@ -692,11 +692,15 @@ class CLILoopsMixin:
             pending = getattr(self, "_pending_input", None)
             if pending is not None and not pending.empty():
                 try:
+                    from agent.context_compressor import _BACKGROUND_PROCESS_NOTIFICATION_PREFIX
                     from tools.process_registry_notifications import ProcessNotificationBatch, TimelineNotification
                     has_real_message = False
                     for e in list(pending.queue):
-                        # TimelineNotification is a str: classify it before the slash check.
-                        if isinstance(e, (ProcessNotificationBatch, TimelineNotification)):
+                        # TimelineNotification is a str: classify it before the slash check. A watch_match
+                        # is queued as a plain str (the drain wraps only delegations and diagnostics), so
+                        # the canonical notification prefix classifies it, as compaction already does.
+                        if isinstance(e, (ProcessNotificationBatch, TimelineNotification)) or (
+                                isinstance(e, str) and e.startswith(_BACKGROUND_PROCESS_NOTIFICATION_PREFIX)):
                             defer_judge = True
                             continue
                         text = e[0] if isinstance(e, tuple) and e else e

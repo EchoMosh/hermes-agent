@@ -208,3 +208,42 @@ def test_post_turn_runs_gates_behind_queued_results_but_yields_to_human_input(po
     assert mgr.state.gates[0].attempts == 1 and mgr.state.turns_used == 1
     assert not post_turn.decisions
     post_turn.judge.assert_not_called()
+
+
+def test_post_turn_runs_gates_behind_a_plain_string_watch_match_notice(post_turn):
+    """A watch_match reaches ``_pending_input`` as a plain ``str`` (the drain wraps only delegations and
+    diagnostics in ``TimelineNotification``): the notification prefix, not the wrapper type, must classify
+    it as synthetic, or the gate is silenced exactly as it was for queued helper results."""
+    from agent.context_compressor import _BACKGROUND_PROCESS_NOTIFICATION_PREFIX
+    from tools.process_registry_notifications import format_process_notification
+
+    mgr = goals.GoalManager("watched-parent")
+    mgr.set("write the research report")
+    mgr.add_gate("echo report.md is missing; exit 7")
+    cli = _post_turn_cli(mgr)
+    sid = mgr.session_id
+    event = {"type": "watch_match", "session_id": "proc_w1", "session_key": sid, "task_id": sid,
+             "owner_task_id": None, "command": "python crawl.py", "pattern": "READY",
+             "output": "crawler READY on :8080", "suppressed": 0}
+    post_turn.registry.completion_queue.put(event)
+    post_turn.registry._completions_restored = True
+
+    cli._tui_after_turn()
+    # The drain still queues the match as the same plain string it always did; the gate feedback follows it.
+    notice = cli._pending_input.get_nowait()
+    assert notice == format_process_notification(event)
+    assert type(notice) is str and notice.startswith(_BACKGROUND_PROCESS_NOTIFICATION_PREFIX)
+    feedback = cli._pending_input.get_nowait()
+    assert "quality gate" in feedback.lower() and "exit 7" in feedback and "report.md is missing" in feedback
+    assert cli._pending_input.empty()
+    assert mgr.state.gates[0].attempts == 1 and mgr.state.turns_used == 1
+    assert post_turn.decisions.pop()["verdict"] == "gate_failed"
+    post_turn.judge.assert_not_called()
+
+    # A plain human string is still human input and preempts the gate.
+    cli._pending_input.put("hold on, let me look first")
+    cli._tui_after_turn()
+    assert list(cli._pending_input.queue) == ["hold on, let me look first"]
+    assert mgr.state.gates[0].attempts == 1 and mgr.state.turns_used == 1
+    assert not post_turn.decisions
+    post_turn.judge.assert_not_called()

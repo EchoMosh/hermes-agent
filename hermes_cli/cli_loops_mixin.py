@@ -668,10 +668,11 @@ class CLILoopsMixin:
 
     def _maybe_continue_goal_after_turn(self) -> None:
         """Post-turn hook: judge the goal and maybe re-queue a continuation. A real user
-        message already queued preempts judging (re-judged after their turn). Ctrl+C
+        message already queued preempts judging (re-judged after their turn); queued helper
+        results and process notifications only defer the judge, the gates still run. Ctrl+C
         AUTO-PAUSES instead of judging — the judge on partial output nearly always says
-        "continue" and would re-queue exactly what was cancelled; pausing is recoverable
-        via ``/goal resume``. Empty-response skip mirrors ``gateway/run.py``."""
+        "continue" and would re-queue exactly what was cancelled; pausing is recoverable via
+        ``/goal resume``. Empty-response skip mirrors ``gateway/run.py``."""
         from cli import _DIM, _RST, _cprint, _looks_like_slash_command
         mgr = self._get_goal_manager()
         if mgr is None or not mgr.is_active():
@@ -679,16 +680,33 @@ class CLILoopsMixin:
 
         # Slash commands don't count as "real user messages": they're dispatched via
         # process_command, not chat(), so a queued /subgoal would consume its slot without
-        # ever re-firing this hook and the goal loop would silently stall. Peek at every
-        # queued entry (Queue.queue is the deque; FIFO undisturbed) and defer only on a
-        # non-slash payload. Bundled payloads are (text, images) tuples.
+        # ever re-firing this hook and the goal loop would silently stall. Neither do the
+        # helper results _tui_after_turn drains ahead of this hook: they are synthetic, so
+        # skipping the check on them silenced every gate while a result was waiting (#1265).
+        # They do have to reach the model before a verdict on its last reply, so they only
+        # defer the judge; a gate continuation queues behind them. Peek at every queued
+        # entry (Queue.queue is the deque; FIFO undisturbed) and return only on a human
+        # payload. Bundled payloads are (text, images) tuples.
+        defer_judge = False
         try:
             pending = getattr(self, "_pending_input", None)
             if pending is not None and not pending.empty():
                 try:
-                    entries = [e[0] if isinstance(e, tuple) and e else e for e in list(pending.queue)]
-                    has_real_message = any(
-                        not (isinstance(e, str) and _looks_like_slash_command(e)) for e in entries)
+                    from agent.context_compressor import _BACKGROUND_PROCESS_NOTIFICATION_PREFIX
+                    from tools.process_registry_notifications import ProcessNotificationBatch, TimelineNotification
+                    has_real_message = False
+                    for e in list(pending.queue):
+                        # TimelineNotification is a str: classify it before the slash check. A watch_match
+                        # is queued as a plain str (the drain wraps only delegations and diagnostics), so
+                        # the canonical notification prefix classifies it, as compaction already does.
+                        if isinstance(e, (ProcessNotificationBatch, TimelineNotification)) or (
+                                isinstance(e, str) and e.startswith(_BACKGROUND_PROCESS_NOTIFICATION_PREFIX)):
+                            defer_judge = True
+                            continue
+                        text = e[0] if isinstance(e, tuple) and e else e
+                        if not (isinstance(text, str) and _looks_like_slash_command(text)):
+                            has_real_message = True
+                            break
                 except Exception:
                     has_real_message = True  # can't introspect — defer to be safe
                 if has_real_message:
@@ -717,7 +735,8 @@ class CLILoopsMixin:
         except Exception:
             _bg_procs = None
         decision = mgr.evaluate_after_turn(
-            last_response, user_initiated=True, background_processes=_bg_procs, active_delegations=_active_deleg)
+            last_response, user_initiated=True, background_processes=_bg_procs,
+            active_delegations=_active_deleg, defer_judge=defer_judge)
         _print_decision_message(decision)
         if decision.get("should_continue"):
             prompt = decision.get("continuation_prompt")

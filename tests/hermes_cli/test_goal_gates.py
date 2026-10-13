@@ -245,6 +245,49 @@ def test_no_gates_behaves_exactly_as_before():
     assert decision["should_continue"] is True
 
 
+def test_defer_judge_skips_judge_and_turn_while_gates_pass():
+    """A queued helper result (CLI) defers the verdict, not the gates: no turn charged, no judge,
+    state untouched, and the next quiet boundary judges as usual."""
+    mgr = _mgr_with_goal("gate-defer-pass-sid")
+    mgr.state.delegation_wait_expired = True
+    deferred = {"status": "active", "should_continue": False, "continuation_prompt": None,
+                "verdict": "deferred", "message": "",
+                "reason": "quality gates pass; judging deferred until queued results are integrated"}
+    with patch(
+        "hermes_cli.goals.judge_goal",
+        return_value=("done", "all good", False, None, False),
+    ) as mock_judge:
+        assert mgr.evaluate_after_turn("draft reply", defer_judge=True) == deferred  # no gates
+        mgr.add_gate("true")
+        assert mgr.evaluate_after_turn("draft reply", defer_judge=True) == deferred
+        mock_judge.assert_not_called()
+        assert mgr.state.gates[0].last_exit_code == 0  # The gate did run.
+        assert mgr.state.turns_used == 0 and mgr.state.last_turn_at == 0.0
+        assert mgr.state.delegation_wait_expired
+        decision = mgr.evaluate_after_turn("integrated reply")
+    mock_judge.assert_called_once()
+    assert decision["verdict"] == "done"
+    assert mgr.state.turns_used == 1
+
+
+def test_defer_judge_counts_a_failing_gate_exactly_like_a_normal_check():
+    outcomes = []
+    with patch("hermes_cli.goals.judge_goal") as mock_judge:
+        for sid, defer in (("gate-defer-fail-sid", True), ("gate-plain-fail-sid", False)):
+            mgr = _mgr_with_goal(sid)
+            mgr.add_gate("exit 5")
+            mgr.state.delegation_wait_expired = True
+            outcomes.append((mgr.evaluate_after_turn("draft reply", defer_judge=defer), mgr.state))
+    mock_judge.assert_not_called()
+    (deferred, deferred_state), (plain, plain_state) = outcomes
+    assert deferred == plain
+    assert deferred["verdict"] == "gate_failed" and deferred["should_continue"] is True
+    assert "exit 5" in deferred["continuation_prompt"]
+    for state in (deferred_state, plain_state):
+        assert state.turns_used == 1 and state.last_turn_at > 0.0
+        assert state.gates[0].attempts == 1 and not state.delegation_wait_expired
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Gate working directory (#125369)
 # ──────────────────────────────────────────────────────────────────────

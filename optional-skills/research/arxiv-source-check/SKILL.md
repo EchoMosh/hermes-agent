@@ -90,6 +90,7 @@ python3 /absolute/skill/path/scripts/source_check.py \
 | Exit `0` | Verified; `accepted_counts` contains main/appendix/total counts. |
 | Exit `2` | Needs inspection; `accepted_counts` is null. |
 | `inspection_candidates[].evidence` | `source_provenance` rows: expected versus observed values behind the failed check. |
+| `tables[]` | Each HTML table's rows with the caption from the same element (`identity`, `caption_text`, `rows`). Read table values here: in flattened page text a caption can sit next to a different table. |
 | `first_appendix_heading` | First sectional heading (h1-h6) of the appendix region, verbatim; null when there is no appendix. A title banner such as a supplementary-material subtitle starts the region but is not a heading. |
 | `inspection_candidates[].binding` | `html_pdf_binding` rows: `ambiguous` or `unmatched`, with `pdf_match_count`; matched captions emit no row. |
 

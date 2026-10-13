@@ -507,3 +507,30 @@ def test_wrapped_caption_verifies_end_to_end_and_duplicates_stay_ambiguous(helpe
     result = source.run(args)
     assert result["verification_status"] == "needs_inspection"
     assert result["native_caption_identities"][0]["binding"] == "ambiguous"
+
+
+# An appendix region can start with a title banner (a styled paragraph such as a
+# conference kit's "Supplementary Material" subtitle) rather than a heading; the
+# first sectional heading of that region is reported separately (#1271).
+def test_first_appendix_heading_skips_title_banner(helpers):
+    _, inventory = helpers
+    html = ('<article class="ltx_document"><section id="S1"><h2>1 Introduction</h2>'
+            + caption("figure", "1", "Main figure words here.", "F1") + '</section>'
+            '<p id="banner">Supplementary Material</p>'
+            '<section id="S8"><h2>A. Generation Details</h2>'
+            + caption("table", "4", "Appendix table words here.", "T4") + '</section></article>')
+    captions, bounds, _, _ = inventory.parse_html(html)
+    assert [c["region"] for c in captions] == ["main", "appendix"]
+    assert bounds[0]["heading"] == "Supplementary Material"
+    assert bounds[0]["first_heading"] == "A. Generation Details"
+
+
+def test_first_appendix_heading_for_native_appendix_and_none(helpers, originals):
+    source, inventory = helpers
+    html = ('<article class="ltx_document">' + caption("figure", "1", "Main figure words here.", "F1")
+            + '<section class="ltx_appendix" id="A1"><h2>Appendix A More Details</h2>'
+            + caption("table", "5", "Appendix table words here.", "T5") + '</section></article>')
+    bounds = inventory.parse_html(html)[1]
+    assert bounds[0]["first_heading"] == "Appendix A More Details"
+    result = source.run(originals())
+    assert result["first_appendix_heading"] is None

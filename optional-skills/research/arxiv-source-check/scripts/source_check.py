@@ -225,6 +225,7 @@ def run(args):
                       'html_sha256':sha(html),'pdf_sha256':sha(pdf),'extraction_sha256':sha(lit),
                       'html_receipt_path':str(html_receipt),'extraction_receipt_path':str(lit_receipt)},
             'native_caption_identities':identities,'appendix_anchors':evidence['boundaries'],
+            'first_appendix_heading':(min(evidence['boundaries'],key=lambda b:b['order'])['first_heading'] if evidence['boundaries'] else None),
             'candidate_counts':total_counts(evidence['counts']),'inspection_candidates':[],
             'excluded_pdf_body_references':evidence['excluded_pdf_body_references'],'ignored_source_objects':evidence['ignored'],
             'expected_counts_supplied':False,'limitations':evidence['limitations']}

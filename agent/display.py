@@ -18,7 +18,11 @@ from urllib.parse import urlsplit
 from utils import safe_json_loads
 from agent.i18n import t
 from agent.redact import redact_sensitive_text
-from agent.tool_result_classification import file_mutation_result_landed, is_guardrail_refusal
+from agent.tool_result_classification import (
+    file_mutation_result_landed,
+    is_guardrail_refusal,
+    terminal_result_failed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1012,15 +1016,17 @@ def _detect_tool_failure(tool_name: str, result: Any) -> tuple[bool, str]:
     if isinstance(data, dict) and data.get("user_summary"):
         return True, f" [{_tail_trunc(str(data['user_summary']), _DEGRADED_SUFFIX_MAX_LEN)}]"
 
-    # Terminal: non-zero exit code is the canonical failure signal.
+    # Terminal: non-zero exit code is the canonical failure signal; a call rejected before
+    # it ran (``tool_error``: ``error`` with no ``exit_code``) failed too.
     if tool_name == "terminal":
-        exit_code = data.get("exit_code") if isinstance(data, dict) else None
-        if exit_code is None or exit_code == 0:
+        if not terminal_result_failed(data):
             return False, ""
         if data.get("status") == "degraded":
             return True, _degraded_suffix(data)
         err_msg = data.get("error")
-        return True, f" [{_trim_error(str(err_msg))}]" if err_msg else t("display.failure.exit_code", code=exit_code)
+        if err_msg:
+            return True, f" [{_trim_error(str(err_msg))}]"
+        return True, t("display.failure.exit_code", code=data.get("exit_code"))
 
     if isinstance(data, dict):
         failed = data.get("success") is False

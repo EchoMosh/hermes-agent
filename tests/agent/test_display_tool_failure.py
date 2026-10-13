@@ -149,3 +149,51 @@ class TestGetCuteToolMessageFailureSuffix:
         ok = json.dumps({"success": True, "data": "hi"})
         line = get_cute_tool_message("web_search", {"query": "hi"}, 0.2, result=ok)
         assert "[" not in line.split("0.2s", 1)[1]
+
+
+class TestDetectToolFailureTerminalRejection:
+    """terminal results that carry no nonzero exit_code (#1264).
+
+    Shapes emitted by tools/terminal_tool.py and tools/terminal_tool_background.py:
+      * argument rejection, ``tool_error(...)`` from ``_handle_terminal`` / ``_Rejected``:
+        ``{"error": "<msg>"}`` -- no ``exit_code`` key at all, the command never ran -> FAILURE
+      * yielded to background: ``{"output": ..., "exit_code": null, "error": null,
+        "status": "yielded_to_background", "session_id": ..., ...}`` -> not a failure
+      * background spawn: ``{"output": "Background process started", "session_id": ...,
+        "pid": ..., "exit_code": 0, "error": null}`` -> not a failure
+    Every other error envelope (``_error_json``, ``_fatal_error_json``, degraded backend,
+    denied approval, failed spawn) sets ``exit_code: -1`` and is the nonzero-exit branch.
+    """
+
+    _REJECTED_CALL = {"command": "sleep 600", "background": False, "notify": False, "heartbeat": 60}
+
+    def _rejection(self) -> str:
+        # The real handler, so the test tracks the shape tool_error actually emits.
+        from tools.terminal_tool import _handle_terminal
+        return _handle_terminal(dict(self._REJECTED_CALL))
+
+    def test_argument_rejection_json_is_a_failure_with_trimmed_message(self):
+        result = self._rejection()
+        assert "exit_code" not in json.loads(result)
+        is_failure, suffix = _detect_tool_failure("terminal", result)
+        assert is_failure is True
+        assert suffix.startswith(" [notify/heartbeat only apply to background")
+        assert suffix.endswith("]")
+        assert len(suffix) <= _ERROR_SUFFIX_MAX_LEN + len(" []")
+
+    def test_argument_rejection_dict_classifies_like_its_json_form(self):
+        result = self._rejection()
+        assert _detect_tool_failure("terminal", json.loads(result)) == _detect_tool_failure("terminal", result)
+
+    def test_yielded_to_background_envelope_is_not_a_failure(self):
+        result = json.dumps({"output": "building...\n", "exit_code": None, "error": None,
+                             "status": "yielded_to_background", "session_id": "proc_1", "pid": 4242,
+                             "notify_on_complete": True, "note": "..."})
+        assert _detect_tool_failure("terminal", result) == (False, "")
+
+    def test_background_spawn_result_is_not_a_failure(self):
+        spawned = {"output": "Background process started", "session_id": "proc_2", "pid": 4243,
+                   "exit_code": 0, "error": None}
+        assert _detect_tool_failure("terminal", json.dumps(spawned)) == (False, "")
+        # Same verdict for a spawn envelope that omits exit_code/error entirely.
+        assert _detect_tool_failure("terminal", {"output": "Background process started", "session_id": "p"}) == (False, "")

@@ -478,3 +478,23 @@ def test_execute_code_replay_streak_notice_fires_on_warn_only_desktop_config():
     assert notices[:2] == [None, None]
     assert all(n is not None and "consecutive identical call to execute_code" in n for n in notices[2:]), notices
     assert controller.halt_decision is None, "warn-only surfaces must not halt"
+
+
+# terminal results with no nonzero exit code (#1264): a call rejected before execution
+# (``tool_error`` -> ``{"error": ...}``, no ``exit_code``) must count as a failure, while the
+# yielded-to-background envelope (``exit_code: null, error: null``) and a background spawn
+# (``exit_code: 0``) must not. Mirrors tests/agent/test_display_tool_failure.py.
+def test_classify_terminal_argument_rejection_as_failure():
+    from tools.registry import tool_error
+    rejection = tool_error("notify/heartbeat only apply to background commands (foreground results return directly).")
+    assert "exit_code" not in json.loads(rejection)
+    assert classify_tool_failure("terminal", rejection) == (True, " [error]")
+
+
+def test_classify_terminal_null_or_zero_exit_without_error_is_not_failure():
+    yielded = json.dumps({"output": "", "exit_code": None, "error": None, "status": "yielded_to_background",
+                          "session_id": "proc_1", "pid": 1, "notify_on_complete": True, "note": "..."})
+    spawned = json.dumps({"output": "Background process started", "session_id": "proc_2", "pid": 2,
+                          "exit_code": 0, "error": None})
+    for result in (yielded, spawned):
+        assert classify_tool_failure("terminal", result) == (False, "")

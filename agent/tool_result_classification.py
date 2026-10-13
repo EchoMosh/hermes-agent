@@ -56,3 +56,21 @@ def file_mutation_result_landed(tool_name: str, result: Any) -> bool:
     if tool_name == "patch":
         return data.get("success") is True
     return False
+
+
+def terminal_result_failed(data: Any) -> bool:
+    """Return True when a parsed ``terminal`` result reports a failure.
+
+    A nonzero ``exit_code`` is the canonical signal. A call refused before anything ran
+    (``tool_error``: bad or conflicting arguments) carries ``error`` and no ``exit_code`` at
+    all, so it counts too; ``exit_code: null`` with no error is a foreground command handed
+    to the background, not a failure. Shared by ``agent.display._detect_tool_failure`` and
+    ``agent.tool_guardrails.classify_tool_failure`` so the loop guardrail never disagrees
+    with the CLI's failure tag.
+    """
+    if not isinstance(data, dict):
+        return False
+    exit_code = data.get("exit_code")
+    if exit_code is None:
+        return bool(data.get("error"))
+    return exit_code != 0

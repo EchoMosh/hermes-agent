@@ -511,3 +511,23 @@ def test_guardrail_halt_emits_final_response_through_stream_delta_callback():
     assert halt_text in text_deltas, (
         f"halt message was never streamed; callback only saw {deltas!r}"
     )
+
+
+def test_rejected_terminal_call_repeats_reach_repeated_exact_failure_warning():
+    """A terminal call refused before execution (``tool_error``: ``{"error": ...}``, no exit_code) is a
+    failure for the loop guardrail, so replaying it unchanged reaches the exact-failure warning (#1264)."""
+    from tools.registry import tool_error
+    agent = _make_agent("terminal")
+    args = {"command": "sleep 600", "background": False, "notify": False, "heartbeat": 60}
+    rejection = tool_error("notify/heartbeat only apply to background commands (foreground results return directly).")
+    contents = []
+    with patch("model_tools.handle_function_call", return_value=rejection):
+        for i in range(agent._tool_guardrails.config.exact_failure_warn_after):
+            tc = _mock_tool_call("terminal", json.dumps(args), f"c-term-{i}")
+            messages = []
+            agent._execute_tool_calls_sequential(SimpleNamespace(content="", tool_calls=[tc]), messages, "task-1")
+            assert [m["role"] for m in messages] == ["tool"]
+            contents.append(messages[0]["content"])
+    assert "repeated_exact_failure_warning" not in contents[0]
+    assert "repeated_exact_failure_warning" in contents[-1]
+    assert agent._tool_guardrail_halt_decision is None

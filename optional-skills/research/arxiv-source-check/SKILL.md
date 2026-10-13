@@ -92,6 +92,8 @@ python3 /absolute/skill/path/scripts/source_check.py \
 | `inspection_candidates[].evidence` | `source_provenance` rows: expected versus observed values behind the failed check. |
 | `tables[]` | Each HTML table's rows with the caption from the same element (`identity`, `caption_text`, `rows`). Read table values here: in flattened page text a caption can sit next to a different table. |
 | `pinned_revision`, `revision_history`, `revision_note` | The pinned revision and every revision's submission date from the abstract page (also in the summary line as `revisions`). Counts describe the pinned revision only. Information only: a missing page sets `revision_history_issue` and never changes verification. |
+| `current_record_authors` | Author names from the current abstract record, as whole name segments, with `current_record_author_count`, `current_record_authors_issue` and `current_record_source` (page sha256). The summary line shows up to five names; the full list is in `inventory.json`. |
+| `--abs-html` | A saved unversioned abstract page for offline runs; supplies the revision history and current authors. |
 | `first_appendix_heading` | First sectional heading (h1-h6) of the appendix region, verbatim; null when there is no appendix. A title banner such as a supplementary-material subtitle starts the region but is not a heading. |
 | `inspection_candidates[].binding` | `html_pdf_binding` rows: `ambiguous` or `unmatched`, with `pdf_match_count`; matched captions emit no row. |
 
@@ -110,7 +112,14 @@ Rehashing arbitrary JSON does not prove which PDF produced it.
    before it: the abstract page's Submission history lists each revision's
    date, and the API's `published` and `updated` fields give the first and
    newest dates. With no date in the request, pin the newest revision. Record
-   the pinned revision's date with its evidence. The helper's summary line
+   the pinned revision's date with its evidence. The pin governs content: figure
+   and table counts and table values. For author names, use the current record
+   (`current_record_authors`; the full list is in `inventory.json`), which carries
+   later corrections and name changes, unless the request asks who wrote a
+   specific revision; then use that revision's own author list. When
+   `current_record_authors` is null or `current_record_authors_issue` is set, read
+   the unversioned abstract page or the API's `<author>` entries; do not substitute
+   the pinned revision's names. The helper's summary line
    lists every revision's date beside the pinned one; re-pin when the pinned
    revision is not the one the request is about.
 2. Run the bundled helper through `terminal`. Read `inventory.json` with

@@ -602,11 +602,14 @@ def test_procedure_pins_the_revision_a_dated_request_is_about():
 
 
 SYNTHETIC_ABSTRACT_PAGE = (
-    '<html><body><div class="submission-history"><h2>Submission history</h2>'
+    '<html><body><div class="authors"><span class="descriptor">Authors:</span>'
+    '<a href="/search/cs?searchtype=author&amp;query=Example,+A">Ada Example</a>, '
+    '<a href="/search/cs?searchtype=author&amp;query=Sample,+R">Renamed Sample</a></div>'
+    '<div class="submission-history"><h2>Submission history</h2>'
     'From: Synthetic Author [<a href="/show-email/x">view email</a>]<br/>'
     '<strong><a href="/abs/9999.00001v1">[v1]</a></strong> Mon, 10 Mar 2025 17:02:11 UTC (1,024 KB)<br/>'
-    '<strong>[v2]</strong> Sun, 1 Jun 2025 08:00:00 UTC (1,100 KB)<br/>'
-    '<strong><a href="/abs/9999.00001v3">[v3]</a></strong> Sun, 2 Nov 2025 09:15:40 UTC (1,200 KB)<br/>'
+    '<strong><a href="/abs/9999.00001v2">[v2]</a></strong> Sun, 1 Jun 2025 08:00:00 UTC (1,100 KB)<br/>'
+    '<strong>[v3]</strong> Sun, 2 Nov 2025 09:15:40 UTC (1,200 KB)<br/>'
     '</div></body></html>'
 )
 
@@ -667,3 +670,68 @@ def test_online_run_reads_the_unversioned_abstract_page(helpers, originals, monk
         assert result["revision_history_issue"] == "abstract_page_unavailable"
     else:
         assert [r["version"] for r in result["revision_history"]] == ["v1", "v2", "v3"]
+
+
+def test_current_record_authors_are_reported_beside_the_counts(helpers, originals, monkeypatch, capsys):
+    """Bibliographic fields come from the current record; content counts stay pinned."""
+    source, _ = helpers
+    args = originals()
+    page = args.output_dir.parent / "abstract.html"
+    page.write_text(SYNTHETIC_ABSTRACT_PAGE, encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", _cli_args(args) + ["--abs-html", str(page)])
+    source.main()
+    summary = json.loads(capsys.readouterr().out)
+    result = json.loads((args.output_dir / "inventory.json").read_text())
+    assert result["current_record_authors"] == ["Ada Example", "Renamed Sample"]
+    assert summary["current_record_authors"] == "Ada Example; Renamed Sample"
+    assert result["pinned_revision"] == "v2"
+
+
+def test_skill_takes_author_names_from_the_current_record():
+    text = " ".join((SKILL / "SKILL.md").read_text().split())
+    assert "current_record_authors" in text
+    assert "For author names, use the current record" in text
+    assert "who wrote a specific revision" in text
+    assert "do not substitute the pinned revision's names" in text
+
+
+def _authors_page(authors_html, shown="v3"):
+    links = {"v1": '<a href="/abs/9999.00001v1">[v1]</a>', "v2": '<a href="/abs/9999.00001v2">[v2]</a>',
+             "v3": '<a href="/abs/9999.00001v3">[v3]</a>'}
+    links[shown] = "[%s]" % shown
+    return ('<div class="authors"><span class="descriptor">Authors:</span>' + authors_html + '</div>'
+            '<div class="submission-history"><h2>Submission history</h2>'
+            '<strong>%s</strong> Mon, 10 Mar 2025 17:02:11 UTC (1 KB)<br/>'
+            '<strong>%s</strong> Sun, 1 Jun 2025 08:00:00 UTC (1 KB)<br/>'
+            '<strong>%s</strong> Sun, 2 Nov 2025 09:15:40 UTC (1 KB)<br/></div>') % (links["v1"], links["v2"], links["v3"])
+
+
+def test_author_names_keep_text_outside_links_and_plain_names(helpers):
+    source, _ = helpers
+    raw = _authors_page('<a href="#">Ada</a> (Nick)Example, Plain Text Name, '
+                        '<a href="#">Renamed</a> <a href="#">Sample</a>, '
+                        '<div id="long-author-list"><a href="#">Hidden Person</a></div>')
+    got = source.current_authors(raw, [{"version": "v1"}, {"version": "v2"}, {"version": "v3"}])
+    assert got["names"] == ["Ada (Nick) Example", "Plain Text Name", "Renamed Sample", "Hidden Person"]
+    assert got["issue"] is None and got["count"] == 4
+
+
+def test_a_page_showing_an_older_revision_is_not_the_current_record(helpers):
+    source, _ = helpers
+    raw = _authors_page('<a href="#">Old Name</a>', shown="v2")
+    got = source.current_authors(raw, [{"version": "v1"}, {"version": "v2"}, {"version": "v3"}])
+    assert got["names"] is None and got["issue"] == "abstract_page_shows_v2_not_newest"
+
+
+def test_missing_author_block_is_reported(helpers):
+    source, _ = helpers
+    raw = _authors_page("").replace('<div class="authors">', '<div class="other">')
+    got = source.current_authors(raw, [{"version": "v3"}])
+    assert got["names"] is None and got["issue"] == "authors_block_not_found"
+
+
+def test_summary_stays_small_for_very_large_author_lists(helpers):
+    source, _ = helpers
+    names = ["Synthetic Author %d" % i for i in range(4000)]
+    summary = source.author_summary({"current_record_authors": names})
+    assert len(summary) < 200 and "4000 total" in summary

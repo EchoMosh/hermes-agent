@@ -120,10 +120,12 @@ def _review_input_budget_exhausted(agent: Any) -> bool:
 
 
 def _maybe_inject_run_budget_wrapup(agent: Any, messages: List[Dict[str, Any]]) -> bool:
-    """Inject the one-time wall-clock wrap-up notice when past 80% of budget.
+    """Inject the wall-clock wrap-up notice when past 80% of budget.
 
     Appends to the NEWEST ``role:"tool"`` message (cache-safe, like /steer); latches
-    ``_run_budget_wrapup_injected`` only on a successful append."""
+    ``_run_budget_wrapup_injected`` only on a successful append. One notice per turn, clock
+    per run: the latch is re-armed each turn while ``_run_budget_started_at`` survives
+    runtime-started turns (see ``turn_context._reset_per_turn_agent_state``)."""
     budget = getattr(agent, "run_budget_seconds", None)
     started = getattr(agent, "_run_budget_started_at", None)
     if not budget or not started or getattr(agent, "_run_budget_wrapup_injected", False) or (

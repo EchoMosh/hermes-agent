@@ -17,7 +17,9 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from agent.conversation_compression import recover_rotated_compression_session
+from agent.conversation_compression import (
+    _SYNTHETIC_USER_PREFIXES, _message_text, recover_rotated_compression_session,
+)
 from agent.iteration_budget import IterationBudget
 from agent.memory_manager import build_memory_context_block
 from agent.memory_provider import is_trivial_prompt
@@ -609,8 +611,13 @@ _PER_TURN_RESET_STATE: Tuple[Tuple[str, Any], ...] = (
 )
 
 
-def _reset_per_turn_agent_state(agent: Any) -> None:
-    """Reset retry counters, guardrails, iteration and run budgets at turn start."""
+def _reset_per_turn_agent_state(agent: Any, *, synthetic_turn: bool = False) -> None:
+    """Reset retry counters, guardrails and the iteration budget at turn start.
+
+    The wall-clock run budget is per RUN, not per turn: ``synthetic_turn`` (a turn the
+    runtime started, see ``_is_synthetic_turn_input``) keeps the running clock, a human
+    turn restarts it. The wrap-up latch is still re-armed every turn: one notice per
+    turn, clock per run."""
     for name, value in _PER_TURN_RESET_STATE:
         setattr(agent, name, value)
     agent._turn_failed_file_mutations = {}
@@ -642,10 +649,13 @@ def _reset_per_turn_agent_state(agent: Any) -> None:
         agent._replay_startup_warnings()
 
     agent.iteration_budget = IterationBudget(agent.max_iterations)
-    # Wall-clock run budget: stamped only when configured (one wrap-up notice per run).
-    agent._run_budget_started_at = (
-        time.time() if getattr(agent, "run_budget_seconds", None) else None
-    )
+    # Wall-clock run budget: stamped only when configured. Background helper results, goal
+    # continuations and loop wakeups each start a new turn; restarting the clock on them
+    # let a mission split across automatic turns never reach its 80% wrap-up (#1266).
+    if not getattr(agent, "run_budget_seconds", None):
+        agent._run_budget_started_at = None
+    elif not synthetic_turn or getattr(agent, "_run_budget_started_at", None) is None:
+        agent._run_budget_started_at = time.time()
     # Reset the streaming context / think scrubbers at the top of each turn.
     for name in ("_stream_context_scrubber", "_stream_think_scrubber"):
         scrubber = getattr(agent, name, None)
@@ -693,6 +703,16 @@ def _stage_turn_user_message(
     if persist_user_platform_id is not None:
         user_msg["platform_message_id"] = persist_user_platform_id
     return user_msg, pending_cli_message
+
+
+def _is_synthetic_turn_input(user_msg: Dict[str, Any]) -> bool:
+    """Whether the runtime, not the human, started this turn: the staged row is typed
+    (TimelineNotification completions, auto_continue, gateway internal events) or its text
+    carries a canonical synthetic prefix (CLI goal continuations and loop wakeups arrive as
+    bare prompts, so only the prefix identifies them)."""
+    if user_msg.get("display_kind"):
+        return True
+    return _message_text(user_msg).lstrip().startswith(_SYNTHETIC_USER_PREFIXES)
 
 
 def _hydrate_from_history(agent: Any, conversation_history: Optional[List[Any]]) -> None:
@@ -1069,7 +1089,12 @@ def build_turn_context(
         agent, task_id, stream_callback, persist_user_message,
         persist_user_timestamp, persist_user_platform_id,
     )
-    _reset_per_turn_agent_state(agent)
+    # Staged before the reset: the run-budget clock only restarts on a genuine user turn.
+    user_msg, pending_cli_message = _stage_turn_user_message(
+        agent, user_message, persist_user_message, persist_user_timestamp,
+        persist_user_platform_id, persist_user_display_kind, persist_user_display_metadata,
+    )
+    _reset_per_turn_agent_state(agent, synthetic_turn=_is_synthetic_turn_input(user_msg))
 
     _preview_text = summarize_user_message_for_log(user_message)
     _msg_preview = _preview_text[:80] + ("..." if len(_preview_text) > 80 else "")
@@ -1090,10 +1115,6 @@ def build_turn_context(
 
     # Copy so the caller's list is never mutated.
     messages = list(conversation_history) if conversation_history else []
-    user_msg, pending_cli_message = _stage_turn_user_message(
-        agent, user_message, persist_user_message, persist_user_timestamp,
-        persist_user_platform_id, persist_user_display_kind, persist_user_display_metadata,
-    )
     _hydrate_from_history(agent, conversation_history)
     # Every estimator this turn prices images at the cost learned from this model's real usage.
     bind_image_token_cost(agent)

@@ -1304,7 +1304,7 @@ class GoalManager:
             lines.append(f"- {i}. $ {g.command}{status}")
         return "\n".join(lines)
 
-    def _check_gates(self) -> Optional[Dict[str, Any]]:
+    def _check_gates(self, *, consume_turn: bool = False) -> Optional[Dict[str, Any]]:
         """Run quality gates in order; return a decision dict on failure.
 
         Every eligible boundary re-executes a failed gate. A git HEAD+porcelain fingerprint used to
@@ -1312,6 +1312,9 @@ class GoalManager:
         of an untracked or already-modified file nor inputs outside the repo, so a repaired input
         was replayed as still-failing until retry exhaustion paused the goal (#110649). The
         retry cap below still bounds a genuinely stuck red suite.
+
+        ``consume_turn`` charges the turn budget only when a gate does not pass, so a deferred-judge
+        boundary (see ``evaluate_after_turn``) costs nothing while every gate is green.
         """
         state = self._state
         if state is None or not state.gates:
@@ -1319,6 +1322,8 @@ class GoalManager:
 
         gate_cwd, refusal = _gate_workspace()
         if refusal:
+            if consume_turn:
+                self._consume_turn()
             return self._pause_decision(
                 f"quality gates not run: {refusal}", "gate_failed", f"gates not run: {refusal}",
                 f"⏸ Goal paused — quality gates not run: {refusal}. Fix the workspace or "
@@ -1332,6 +1337,8 @@ class GoalManager:
                 gate.attempts = 0
                 continue
 
+            if consume_turn:
+                self._consume_turn()
             gate.attempts += 1
 
             if gate.attempts > gate.max_retries:
@@ -1487,14 +1494,27 @@ class GoalManager:
             "Use /goal resume to keep going, or /goal clear to stop.",
         )
 
+    def _consume_turn(self) -> None:
+        """Charge this boundary to the turn budget. Both real user prompts and our own continuations
+        increment ``turns_used`` — both consume model budget."""
+        state = self._state
+        state.delegation_wait_expired = False
+        state.turns_used += 1
+        state.last_turn_at = time.time()
+
     def evaluate_after_turn(
         self, last_response: str, *, user_initiated: bool = True,
         background_processes: Optional[List[Dict[str, Any]]] = None,
-        active_delegations: int = 0,
+        active_delegations: int = 0, defer_judge: bool = False,
     ) -> Dict[str, Any]:
         """Run gates + judge and update state. Return a decision dict (``status``, ``should_continue``,
         ``continuation_prompt``, ``verdict``, ``reason``, ``message``). Both real user prompts and our
-        own continuations increment ``turns_used`` — both consume model budget."""
+        own continuations increment ``turns_used`` — both consume model budget.
+
+        ``defer_judge``: the caller holds results the model has not read yet (the CLI's queued helper
+        notifications). Only the gates run: a failure is handled exactly as usual, a pass changes no
+        turn accounting and returns a ``deferred`` verdict, and the next boundary with nothing queued
+        judges normally — the judgement is postponed, never lost."""
         state = self._state
         if state is None or state.status != "active":
             return _decision(state.status if state else None, False, None, "inactive", "no active goal", "")
@@ -1513,13 +1533,19 @@ class GoalManager:
             )
             return self._waiting_decision(state)
 
-        state.delegation_wait_expired = False
-        state.turns_used += 1
-        state.last_turn_at = time.time()
-
         # Gates run BEFORE the judge: a failing gate is deterministic evidence the goal is not done,
         # so the judge is skipped and the gate's output drives the next turn (same turn budget).
-        gate_decision = self._check_gates()
+        if defer_judge:
+            # Judging ``last_response`` while a helper result sits unread would grade work written
+            # before that result (a false "done" is possible without gates); a gate is truthful at
+            # any boundary, so it still runs and a failure still costs the turn (#1265).
+            gate_decision = self._check_gates(consume_turn=True)
+            if gate_decision is None:
+                return _decision("active", False, None, "deferred",
+                                 "quality gates pass; judging deferred until queued results are integrated", "")
+        else:
+            self._consume_turn()
+            gate_decision = self._check_gates()
         if gate_decision is not None:
             if gate_decision.get("should_continue") and state.turns_used >= state.max_turns:
                 return self._budget_pause(state, "gate_failed", gate_decision.get("reason", ""), note=" (a quality gate is still failing)")

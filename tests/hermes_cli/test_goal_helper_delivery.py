@@ -1,4 +1,4 @@
-"""Live helpers defer goal gates; completed results preempt CLI continuations (#1259)."""
+"""Live helpers defer goal gates; queued results are admitted first and defer only the judge (#1259, #1265)."""
 
 import queue
 import sys
@@ -103,10 +103,10 @@ def test_live_helpers_defer_gates_and_budget_until_results_or_deadline(isolated_
     assert not mgr.state.delegation_wait_expired
 
 
-def test_post_turn_admits_durable_results_before_goal_and_preserves_interrupt(isolated_goal, monkeypatch):
-    from cli import HermesCLI
+@pytest.fixture
+def post_turn(isolated_goal, monkeypatch):
+    """Registry, judge mock and goal-decision recorder for driving ``_tui_after_turn`` on a CLI stub."""
     from tools.process_registry import ProcessRegistry
-    from tools.process_registry_notifications import format_process_notification
 
     registry = ProcessRegistry()
     monkeypatch.setattr("tools.process_registry.process_registry", registry)
@@ -114,44 +114,97 @@ def test_post_turn_admits_durable_results_before_goal_and_preserves_interrupt(is
     monkeypatch.setattr("cli._cprint", lambda *args: None)
     judge = Mock(return_value=("continue", "integrate results", False, None, False))
     monkeypatch.setattr(goals, "judge_goal", judge)
+    decisions = []
+    monkeypatch.setattr("hermes_cli.cli_loops_mixin._print_decision_message", decisions.append)
+    return SimpleNamespace(registry=registry, judge=judge, decisions=decisions)
+
+
+def _post_turn_cli(mgr, *, interrupted=False):
+    """A HermesCLI stub holding only what ``_tui_after_turn`` touches, bound to ``mgr``'s session."""
+    from cli import HermesCLI
+
+    sid = mgr.session_id
+    cli = HermesCLI.__new__(HermesCLI)
+    for attr, value in {
+        "session_id": sid, "agent": SimpleNamespace(session_id=sid), "_goal_manager": mgr,
+        "_pending_input": queue.Queue(), "_interrupt_queue": queue.Queue(),
+        "_last_turn_interrupted": interrupted, "_pending_tool_info": {}, "_voice_mode": False,
+        "conversation_history": [{"role": "assistant", "content": "Research is running"}],
+        "_app": SimpleNamespace(invalidate=lambda: None), "_pet_react_turn_end": lambda: None,
+        "_turn_summary_emit": lambda: None, "_recover_terminal_after_interrupt": lambda: None,
+        "_maybe_complete_loop_tick_after_turn": lambda: None,
+    }.items():
+        setattr(cli, attr, value)
+    return cli
+
+
+def _queue_completion(registry, sid):
+    """Persist and enqueue a completed delegation owned by ``sid``; returns its event."""
+    event = {"type": "async_delegation", "delegation_id": f"deleg-{sid}", "session_key": sid,
+             "parent_session_id": sid, "status": "completed", "goal": "research",
+             "summary": "Verified research results", "completed_at": time.time()}
+    ad._persist_dispatch({**event, "dispatched_at": time.time() - 60})
+    ad._persist_completion(event, {"status": "completed", "summary": event["summary"]})
+    registry.completion_queue.put(event)
+    registry._completions_restored = True
+    return event
+
+
+def test_post_turn_admits_durable_results_before_goal_and_preserves_interrupt(post_turn):
+    from tools.process_registry_notifications import format_process_notification
 
     for interrupted in (False, True):
-        sid = f"parent-{interrupted}"
-        mgr = goals.GoalManager(sid)
+        mgr = goals.GoalManager(f"parent-{interrupted}")
         mgr.set("integrate research")
-        cli = HermesCLI.__new__(HermesCLI)
-        for attr, value in {
-            "session_id": sid, "agent": SimpleNamespace(session_id=sid), "_goal_manager": mgr,
-            "_pending_input": queue.Queue(), "_interrupt_queue": queue.Queue(),
-            "_last_turn_interrupted": interrupted, "_pending_tool_info": {}, "_voice_mode": False,
-            "conversation_history": [{"role": "assistant", "content": "Research is running"}],
-            "_app": SimpleNamespace(invalidate=lambda: None), "_pet_react_turn_end": lambda: None,
-            "_turn_summary_emit": lambda: None, "_recover_terminal_after_interrupt": lambda: None,
-            "_maybe_complete_loop_tick_after_turn": lambda: None,
-        }.items():
-            setattr(cli, attr, value)
-        event = {"type": "async_delegation", "delegation_id": f"deleg-{sid}", "session_key": sid,
-                 "parent_session_id": sid, "status": "completed", "goal": "research",
-                 "summary": "Verified research results", "completed_at": time.time()}
-        ad._persist_dispatch({**event, "dispatched_at": time.time() - 60})
-        ad._persist_completion(event, {"status": "completed", "summary": event["summary"]})
-        registry.completion_queue.put(event)
-        registry._completions_restored = True
+        cli = _post_turn_cli(mgr, interrupted=interrupted)
+        event = _queue_completion(post_turn.registry, mgr.session_id)
 
         cli._tui_after_turn()
         completion = cli._pending_input.get_nowait()
         assert completion == format_process_notification(event)
         assert cli._pending_input.empty()  # No goal continuation can get ahead of this result.
         assert ad.get_durable_delegation(event["delegation_id"])["delivery_state"] == "delivered"
-        judge.assert_not_called()
+        post_turn.judge.assert_not_called()
         assert mgr.state.turns_used == 0
         if interrupted:
             assert mgr.state.status == "paused"
+            assert not post_turn.decisions  # Ctrl+C pauses before anything is evaluated.
         else:
             assert mgr.state.status == "active"
+            # No gates: nothing is checkable until the model has read the result, so the verdict waits.
+            assert post_turn.decisions.pop()["verdict"] == "deferred"
             cli.conversation_history.append({"role": "assistant", "content": "Integrated research results"})
             cli._tui_after_turn()
             assert "Continuing toward your standing goal" in cli._pending_input.get_nowait()
             assert mgr.state.turns_used == 1
-            judge.assert_called_once()
-            judge.reset_mock()
+            post_turn.judge.assert_called_once()
+            assert post_turn.decisions.pop()["verdict"] == "continue"
+            post_turn.judge.reset_mock()
+
+
+def test_post_turn_runs_gates_behind_queued_results_but_yields_to_human_input(post_turn):
+    from tools.process_registry_notifications import format_process_notification
+
+    mgr = goals.GoalManager("gated-parent")
+    mgr.set("write the research report")
+    mgr.add_gate("echo report.md is missing; exit 7")
+    cli = _post_turn_cli(mgr)
+    event = _queue_completion(post_turn.registry, mgr.session_id)
+
+    cli._tui_after_turn()
+    # The helper result still reaches the model first; the deterministic gate feedback follows it.
+    assert cli._pending_input.get_nowait() == format_process_notification(event)
+    feedback = cli._pending_input.get_nowait()
+    assert "quality gate" in feedback.lower() and "exit 7" in feedback and "report.md is missing" in feedback
+    assert cli._pending_input.empty()
+    assert mgr.state.gates[0].attempts == 1 and mgr.state.turns_used == 1
+    assert post_turn.decisions.pop()["verdict"] == "gate_failed"
+    post_turn.judge.assert_not_called()
+
+    # A human message already queued preempts everything, gates included.
+    cli._pending_input.put("hold on, let me look first")
+    cli._tui_after_turn()
+    assert list(cli._pending_input.queue) == ["hold on, let me look first"]
+    assert mgr.state.gates[0].attempts == 1 and mgr.state.turns_used == 1
+    assert not post_turn.decisions
+    post_turn.judge.assert_not_called()
